@@ -1,0 +1,164 @@
+diff -ur libgcrypt-1.5.0/cipher/idea.c libgcrypt-1.5.0f/cipher/idea.c
+--- libgcrypt-1.5.0/cipher/idea.c	2011-12-25 00:45:06.747113267 +0100
++++ libgcrypt-1.5.0f/cipher/idea.c	2011-12-25 00:45:18.393287816 +0100
+@@ -89,6 +89,9 @@
+ #include <stdlib.h>
+ #include <string.h>
+ #include <assert.h>
++#include "g10lib.h"
++#include "types.h"
++#include "cipher.h"
+ 
+ #if !defined(BIG_ENDIAN_HOST) && !defined(LITTLE_ENDIAN_HOST)
+ /* Try to handle endianness if we didn't get it from config.h */
+@@ -103,9 +106,6 @@
+ #endif
+ #endif
+ 
+-typedef unsigned short u16; /* Note: Make sure this is a 16 bit type. */
+-typedef unsigned long  u32; /* Note: Make sure this is a 32 bit type. */
+-
+ /* end configurable stuff */
+ 
+ 
+@@ -116,8 +116,8 @@
+ 
+ /* local stuff */
+ 
+-#define FNCCAST_SETKEY(f)   ((int(*)(void*, unsigned char*, unsigned int))(f))
+-#define FNCCAST_CRYPT(f) ((void(*)(void*, unsigned char*, unsigned char*))(f))
++#define FNCCAST_SETKEY(f)   ((int(*)(void*, byte*, unsigned int))(f))
++#define FNCCAST_CRYPT(f) ((void(*)(void*, byte*, byte*))(f))
+ 
+ #define IDEA_KEYSIZE 16
+ #define IDEA_BLOCKSIZE 8
+@@ -131,11 +131,9 @@
+ } IDEA_context;
+ 
+ 
+-static int do_setkey( IDEA_context *c, unsigned char *key, unsigned keylen );
+-static void encrypt_block( IDEA_context *bc, unsigned char *outbuf,
+-                           unsigned char *inbuf );
+-static void decrypt_block( IDEA_context *bc, unsigned char *outbuf,
+-                           unsigned char *inbuf );
++static gcry_err_code_t do_setkey( void *data, const byte *key, unsigned keylen );
++static void encrypt_block( void *data, byte *outbuf, const byte *inbuf );
++static void decrypt_block( void *data, byte *outbuf, const byte *inbuf );
+ static int selftest(int);
+ 
+ 
+@@ -170,7 +168,7 @@
+ 
+ 
+ static void
+-expand_key( unsigned char *userkey, u16 *ek )
++expand_key( const byte *userkey, u16 *ek )
+ {
+     int i,j;
+ 
+@@ -233,7 +231,7 @@
+ 
+ 
+ static void
+-cipher( unsigned char *outbuf, unsigned char *inbuf, u16 *key )
++cipher( byte *outbuf, const byte *inbuf, u16 *key )
+ {
+     u16 x1, x2, x3,x4, s2, s3;
+     u16 *in, *out;
+@@ -309,25 +307,28 @@
+ }
+ 
+ 
+-static int
+-do_setkey( IDEA_context *c, unsigned char *key, unsigned keylen )
++static gcry_err_code_t
++do_setkey( void *data, const byte *key, unsigned keylen )
+ {
++    IDEA_context *c = (IDEA_context*)data;
+     assert(keylen == 16);
+     c->have_dk = 0;
+     expand_key( key, c->ek );
+     invert_key( c->ek, c->dk );
+-    return 0;
++    return GPG_ERR_NO_ERROR;
+ }
+ 
+ static void
+-encrypt_block( IDEA_context *c, unsigned char *outbuf, unsigned char *inbuf )
++encrypt_block( void *data, byte *outbuf, const byte *inbuf )
+ {
++    IDEA_context *c = (IDEA_context*)data;
+     cipher( outbuf, inbuf, c->ek );
+ }
+ 
+ static void
+-decrypt_block( IDEA_context *c, unsigned char *outbuf, unsigned char *inbuf )
++decrypt_block( void *data, byte *outbuf, const byte *inbuf )
+ {
++    IDEA_context *c = (IDEA_context*)data;
+     if( !c->have_dk ) {
+        c->have_dk = 1;
+        invert_key( c->ek, c->dk );
+@@ -340,9 +341,9 @@
+ selftest( int check_decrypt )
+ {
+ static struct {
+-    unsigned char key[16];
+-    unsigned char plain[8];
+-    unsigned char cipher[8];
++    byte key[16];
++    byte plain[8];
++    byte cipher[8];
+ } test_vectors[] = {
+     { { 0x00, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x04,
+ 	0x00, 0x05, 0x00, 0x06, 0x00, 0x07, 0x00, 0x08 },
+@@ -390,7 +391,7 @@
+       { 0xF5, 0xDB, 0x1A, 0xC4, 0x5E, 0x5E, 0xF9, 0xF9 } }
+ };
+     IDEA_context c;
+-    unsigned char buffer[8];
++    byte buffer[8];
+     int i;
+ 
+     for(i=0; i < DIM(test_vectors); i++ ) {
+@@ -425,12 +426,12 @@
+ const char *
+ idea_get_info( int algo, size_t *keylen,
+                size_t *blocksize, size_t *contextsize,
+-               int	(**r_setkey)( void *c, unsigned char *key,
++               int	(**r_setkey)( void *c, byte *key,
+                                       unsigned keylen ),
+-               void (**r_encrypt)( void *c, unsigned char *outbuf,
+-                                   unsigned char *inbuf ),
+-               void (**r_decrypt)( void *c, unsigned char *outbuf,
+-                                   unsigned char *inbuf )
++               void (**r_encrypt)( void *c, byte *outbuf,
++                                   byte *inbuf ),
++               void (**r_decrypt)( void *c, byte *outbuf,
++                                   byte *inbuf )
+                )
+ {
+     static int initialized = 0;
+@@ -451,7 +452,22 @@
+     return NULL;
+ }
+ 
++static gcry_err_code_t idea_setkey(void *data, const byte *key, unsigned keylen)
++{
++    static int initialized = 0;
++    if(!initialized) { 
++	initialized = 1;
++	if (selftest(0) || selftest(1))
++	    return GPG_ERR_CIPHER_ALGO;
++    }
++    return do_setkey(data, key, keylen);
++}
+ 
++gcry_cipher_spec_t _gcry_cipher_spec_idea =
++{
++    "IDEA", NULL, NULL, 8, 128, sizeof (IDEA_context),
++    idea_setkey, encrypt_block, decrypt_block
++};
+ 
+ const char * const gnupgext_version = "IDEA ($Revision: 1.11 $)";
+ 
