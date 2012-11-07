@@ -35,7 +35,7 @@ library.
 
 %build
 # define ciphers to build
-ENABLE_CIPHER="arcfour blowfish cast5 des aes twofish serpent rfc2268 seed camellia idea"
+ENABLE_CIPHER="arcfour blowfish cast5 des aes twofish serpent rfc2268 seed camellia"
 ENABLE_PUBKEY="dsa elgamal rsa ecc"
 ENABLE_DIGEST="crc md4 md5 rmd160 sha1 sha256 sha512 tiger whirlpool"
 #
