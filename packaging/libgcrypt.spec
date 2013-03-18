@@ -5,7 +5,7 @@ License:        GPL-2.0+ ; LGPL-2.1+
 Summary:        The GNU Crypto Library
 %define libsoname %{name}
 Url:            http://directory.fsf.org/wiki/Libgcrypt
-Group:          Development/Libraries/C and C++
+Group:          System/Libraries
 Source:         %{name}-%{version}.tar.bz2
 Source2:        baselibs.conf
 BuildRequires:  libgpg-error-devel >= 1.8
@@ -18,7 +18,7 @@ GnuPG (alpha version).
 %package devel
 License:        GFDL-1.1 ; GPL-2.0+ ; LGPL-2.1+ ; MIT
 Summary:        The GNU Crypto Library
-Group:          Development/Libraries/C and C++
+Group:          Development/Libraries
 Requires:       %{libsoname} = %{version}
 Requires:       glibc-devel
 Requires:       libgpg-error-devel >= 1.8
@@ -62,6 +62,7 @@ make %{?_smp_mflags}
 
 %files
 %defattr(-,root,root)
+%license COPYING COPYING.LIB
 %{_libdir}/%{name}.so.11*
 
 %files devel
