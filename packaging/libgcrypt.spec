@@ -5,7 +5,7 @@ License:        GPL-2.0+ ; LGPL-2.1+
 Summary:        The GNU Crypto Library
 %define libsoname %{name}
 Url:            http://directory.fsf.org/wiki/Libgcrypt
-Group:          System/Libraries
+Group:          Security/Crypto Libraries
 Source:         %{name}-%{version}.tar.bz2
 Source2:        baselibs.conf
 BuildRequires:  libgpg-error-devel >= 1.8
