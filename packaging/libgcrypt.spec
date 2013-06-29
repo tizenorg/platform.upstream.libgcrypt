@@ -8,6 +8,7 @@ Url:            http://directory.fsf.org/wiki/Libgcrypt
 Group:          Security/Crypto Libraries
 Source:         %{name}-%{version}.tar.bz2
 Source2:        baselibs.conf
+Source1001: 	libgcrypt.manifest
 BuildRequires:  libgpg-error-devel >= 1.8
 BuildRequires:  libtool
 
@@ -32,6 +33,7 @@ library.
 
 %prep
 %setup -q
+cp %{SOURCE1001} .
 
 %build
 # define ciphers to build
@@ -61,11 +63,13 @@ make %{?_smp_mflags}
 %postun -p /sbin/ldconfig
 
 %files
+%manifest %{name}.manifest
 %defattr(-,root,root)
 %license COPYING COPYING.LIB
 %{_libdir}/%{name}.so.11*
 
 %files devel
+%manifest %{name}.manifest
 %defattr(-,root,root)
 %{_infodir}/gcrypt.info.gz
 %{_infodir}/gcrypt.info-1.gz
