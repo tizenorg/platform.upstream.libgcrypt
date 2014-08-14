@@ -78,6 +78,7 @@
 #include <stdint.h>
 #endif
 
+#include <winsock2.h>
 #include <windows.h>
 
 
@@ -430,7 +431,7 @@ registry_poll (void (*add)(const void*, size_t, enum random_origins),
     }
   else
     {
-      pPerfData = gcry_xmalloc (cbPerfData);
+      pPerfData = xmalloc (cbPerfData);
       for (iterations=0; iterations < 10; iterations++)
         {
           dwSize = cbPerfData;
@@ -450,7 +451,7 @@ registry_poll (void (*add)(const void*, size_t, enum random_origins),
           else if (status == ERROR_MORE_DATA)
             {
               cbPerfData += PERFORMANCE_BUFFER_STEP;
-              pPerfData = gcry_xrealloc (pPerfData, cbPerfData);
+              pPerfData = xrealloc (pPerfData, cbPerfData);
             }
           else
             {
@@ -468,7 +469,7 @@ registry_poll (void (*add)(const void*, size_t, enum random_origins),
               break;
             }
         }
-      gcry_free (pPerfData);
+      xfree (pPerfData);
     }
 
   /* Although this isn't documented in the Win32 API docs, it's necessary
@@ -654,7 +655,7 @@ slow_gatherer ( void (*add)(const void*, size_t, enum random_origins),
      This scan typically yields around 20 pieces of data, there's nothing
      in the range 65...128 so chances are there won't be anything above
      there either.  */
-  buffer = gcry_xmalloc (PERFORMANCE_BUFFER_SIZE);
+  buffer = xmalloc (PERFORMANCE_BUFFER_SIZE);
   for (dwType = 0; dwType < 64; dwType++)
     {
       switch (dwType)
@@ -758,7 +759,7 @@ slow_gatherer ( void (*add)(const void*, size_t, enum random_origins),
         }
       gcry_assert (i < 100);
     }
-  gcry_free (buffer);
+  xfree (buffer);
 
   /* We couldn't get enough results from the kernel, fall back to the
      somewhat troublesome registry poll.  */

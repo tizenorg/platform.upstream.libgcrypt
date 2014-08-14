@@ -11,8 +11,11 @@
 /* Define if building universal (internal helper macro) */
 #undef AC_APPLE_UNIVERSAL_BUILD
 
-/* Subversion revision used to build this package */
+/* GIT commit id revision used to build this package */
 #undef BUILD_REVISION
+
+/* The time this package was configured for a build */
+#undef BUILD_TIMESTAMP
 
 /* configure did not test for endianess */
 #undef DISABLED_ENDIAN_CHECK
@@ -24,11 +27,26 @@
 /* Enable support for Intel AES-NI instructions. */
 #undef ENABLE_AESNI_SUPPORT
 
+/* Enable support for Intel AVX2 instructions. */
+#undef ENABLE_AVX2_SUPPORT
+
+/* Enable support for Intel AVX instructions. */
+#undef ENABLE_AVX_SUPPORT
+
+/* Enable support for Intel DRNG (RDRAND instruction). */
+#undef ENABLE_DRNG_SUPPORT
+
 /* Define to support an HMAC based integrity check */
 #undef ENABLE_HMAC_BINARY_CHECK
 
+/* Enable support for ARM NEON instructions. */
+#undef ENABLE_NEON_SUPPORT
+
 /* Enable support for the PadLock engine. */
 #undef ENABLE_PADLOCK_SUPPORT
+
+/* Enable support for Intel PCLMUL instructions. */
+#undef ENABLE_PCLMUL_SUPPORT
 
 /* Define to use the GNU C visibility attribute. */
 #undef GCRY_USE_VISIBILITY
@@ -36,11 +54,20 @@
 /* The default error source for libgcrypt. */
 #undef GPG_ERR_SOURCE_DEFAULT
 
+/* Defined if ARM architecture is v6 or newer */
+#undef HAVE_ARM_ARCH_V6
+
 /* Define to 1 if you have the `atexit' function. */
 #undef HAVE_ATEXIT
 
 /* Defined if the mlock() call does not work */
 #undef HAVE_BROKEN_MLOCK
+
+/* Defined if compiler has '__builtin_bswap32' intrinsic */
+#undef HAVE_BUILTIN_BSWAP32
+
+/* Defined if compiler has '__builtin_bswap64' intrinsic */
+#undef HAVE_BUILTIN_BSWAP64
 
 /* Defined if a `byte' is typedef'd */
 #undef HAVE_BYTE_TYPEDEF
@@ -50,6 +77,35 @@
 
 /* Define to 1 if you have the `clock_gettime' function. */
 #undef HAVE_CLOCK_GETTIME
+
+/* Defined if underlying assembler is compatible with amd64 assembly
+   implementations */
+#undef HAVE_COMPATIBLE_GCC_AMD64_PLATFORM_AS
+
+/* Defined if underlying assembler is compatible with ARM assembly
+   implementations */
+#undef HAVE_COMPATIBLE_GCC_ARM_PLATFORM_AS
+
+/* Defined for Alpha platforms */
+#undef HAVE_CPU_ARCH_ALPHA
+
+/* Defined for ARM platforms */
+#undef HAVE_CPU_ARCH_ARM
+
+/* Defined for M68k platforms */
+#undef HAVE_CPU_ARCH_M68K
+
+/* Defined for MIPS platforms */
+#undef HAVE_CPU_ARCH_MIPS
+
+/* Defined for PPC platforms */
+#undef HAVE_CPU_ARCH_PPC
+
+/* Defined for SPARC platforms */
+#undef HAVE_CPU_ARCH_SPARC
+
+/* Defined for the x86 platforms */
+#undef HAVE_CPU_ARCH_X86
 
 /* Define to 1 if you have the declaration of `sys_siglist', and to 0 if you
    don't. */
@@ -74,8 +130,35 @@
 /* Define to 1 if you have the `fcntl' function. */
 #undef HAVE_FCNTL
 
+/* Define to 1 if you have the `flockfile' function. */
+#undef HAVE_FLOCKFILE
+
 /* Define to 1 if you have the `ftruncate' function. */
 #undef HAVE_FTRUNCATE
+
+/* Define if inline asm memory barrier is supported */
+#undef HAVE_GCC_ASM_VOLATILE_MEMORY
+
+/* Defined if a GCC style "__attribute__ ((aligned (n))" is supported */
+#undef HAVE_GCC_ATTRIBUTE_ALIGNED
+
+/* Defined if inline assembler supports AVX instructions */
+#undef HAVE_GCC_INLINE_ASM_AVX
+
+/* Defined if inline assembler supports AVX2 instructions */
+#undef HAVE_GCC_INLINE_ASM_AVX2
+
+/* Defined if inline assembler supports BMI2 instructions */
+#undef HAVE_GCC_INLINE_ASM_BMI2
+
+/* Defined if inline assembler supports NEON instructions */
+#undef HAVE_GCC_INLINE_ASM_NEON
+
+/* Defined if inline assembler supports PCLMUL instructions */
+#undef HAVE_GCC_INLINE_ASM_PCLMUL
+
+/* Defined if inline assembler supports SSSE3 instructions */
+#undef HAVE_GCC_INLINE_ASM_SSSE3
 
 /* Define to 1 if you have the `gethrtime' function. */
 #undef HAVE_GETHRTIME
@@ -91,6 +174,10 @@
 
 /* Define to 1 if you have the `gettimeofday' function. */
 #undef HAVE_GETTIMEOFDAY
+
+/* Defined if underlying assembler is compatible with Intel syntax assembly
+   implementations */
+#undef HAVE_INTEL_SYNTAX_PLATFORM_AS
 
 /* Define to 1 if you have the <inttypes.h> header file. */
 #undef HAVE_INTTYPES_H
@@ -112,6 +199,12 @@
 
 /* Defined if the GNU Pth is available */
 #undef HAVE_PTH
+
+/* Define if the <pthread.h> defines PTHREAD_MUTEX_RECURSIVE. */
+#undef HAVE_PTHREAD_MUTEX_RECURSIVE
+
+/* Define if the POSIX multithreading library has read/write locks. */
+#undef HAVE_PTHREAD_RWLOCK
 
 /* Define to 1 if you have the `raise' function. */
 #undef HAVE_RAISE
@@ -191,6 +284,9 @@
 /* Defined if a `ushort' is typedef'd */
 #undef HAVE_USHORT_TYPEDEF
 
+/* Defined if variable length arrays are supported */
+#undef HAVE_VLA
+
 /* Define to 1 if you have the `vprintf' function. */
 #undef HAVE_VPRINTF
 
@@ -220,6 +316,9 @@
 
 /* List of available digest algorithms */
 #undef LIBGCRYPT_DIGESTS
+
+/* List of available KDF algorithms */
+#undef LIBGCRYPT_KDFS
 
 /* List of available public key cipher algorithms */
 #undef LIBGCRYPT_PUBKEY_CIPHERS
@@ -263,6 +362,9 @@
 
 /* A human readable text with the name of the OS */
 #undef PRINTABLE_OS_NAME
+
+/* Define if the pthread_in_use() detection is hard. */
+#undef PTHREAD_IN_USE_DETECTION_HARD
 
 /* Define as the return type of signal handlers (`int' or `void'). */
 #undef RETSIGTYPE
@@ -319,6 +421,18 @@
 #undef USE_GNU_PTH
 
 /* Defined if this module should be included */
+#undef USE_GOST28147
+
+/* Defined if this module should be included */
+#undef USE_GOST_R_3411_12
+
+/* Defined if this module should be included */
+#undef USE_GOST_R_3411_94
+
+/* Defined if this module should be included */
+#undef USE_IDEA
+
+/* Defined if this module should be included */
 #undef USE_MD4
 
 /* Defined if this module should be included */
@@ -326,6 +440,13 @@
 
 /* set this to limit filenames to the 8.3 format */
 #undef USE_ONLY_8DOT3
+
+/* Define if the POSIX multithreading library can be used. */
+#undef USE_POSIX_THREADS
+
+/* Define if references to the POSIX multithreading library should be made
+   weak. */
+#undef USE_POSIX_THREADS_WEAK
 
 /* Define to support the experimental random daemon */
 #undef USE_RANDOM_DAEMON
@@ -355,6 +476,12 @@
 #undef USE_RSA
 
 /* Defined if this module should be included */
+#undef USE_SALSA20
+
+/* Defined if this module should be included */
+#undef USE_SCRYPT
+
+/* Defined if this module should be included */
 #undef USE_SEED
 
 /* Defined if this module should be included */
@@ -368,6 +495,13 @@
 
 /* Defined if this module should be included */
 #undef USE_SHA512
+
+/* Define if the old Solaris multithreading library can be used. */
+#undef USE_SOLARIS_THREADS
+
+/* Define if references to the old Solaris multithreading library should be
+   made weak. */
+#undef USE_SOLARIS_THREADS_WEAK
 
 /* Enable extensions on AIX 3, Interix.  */
 #ifndef _ALL_SOURCE
@@ -399,6 +533,9 @@
 
 /* Defined if this module should be included */
 #undef USE_WHIRLPOOL
+
+/* Define if the native Windows multithreading API can be used. */
+#undef USE_WINDOWS_THREADS
 
 /* Version of this package */
 #undef VERSION
@@ -434,6 +571,10 @@
 # define _REENTRANT 1
 #endif
 
+
+/* Define to supported assembler block keyword, if plain 'asm' was not
+   supported */
+#undef asm
 
 /* Define to empty if `const' does not conform to ANSI C. */
 #undef const
@@ -475,11 +616,6 @@
 /* We basically use the original Camellia source.  Make sure the symbols
    properly prefixed.  */
 #define CAMELLIA_EXT_SYM_PREFIX _gcry_
-
-/* This error code is only available with gpg-error 1.7.  Thus
-   we define it here with the usual gcry prefix.  */
-#define GCRY_GPG_ERR_NOT_OPERATIONAL  176
-
 
 #endif /*_GCRYPT_CONFIG_H_INCLUDED*/
 

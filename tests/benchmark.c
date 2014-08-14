@@ -22,20 +22,16 @@
 #endif
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
 #include <stdarg.h>
-#ifdef _WIN32
-#include <windows.h>
-#else
-#include <sys/times.h>
-#endif
 
 #ifdef _GCRYPT_IN_LIBGCRYPT
-# include "../src/gcrypt.h"
+# include "../src/gcrypt-int.h"
 # include "../compat/libcompat.h"
 #else
 # include <gcrypt.h>
 #endif
+
+#include "stopwatch.h"
 
 
 #define PGM "benchmark"
@@ -51,6 +47,9 @@ static int cipher_repetitions;
 /* Number of hash repetitions.  */
 static int hash_repetitions;
 
+/* Number of hash repetitions.  */
+static int mac_repetitions;
+
 /* Alignment of the buffers.  */
 static int buffer_alignment;
 
@@ -59,6 +58,9 @@ static int cipher_with_keysetup;
 
 /* Whether fips mode was active at startup.  */
 static int in_fips_mode;
+
+/* Whether we are running as part of the regression test suite.  */
+static int in_regression_test;
 
 
 static const char sample_private_dsa_key_1024[] =
@@ -254,15 +256,6 @@ static const char sample_public_dsa_key_3072[] =
 		  exit(2);} while(0)
 
 
-/* Helper for the start and stop timer. */
-#ifdef _WIN32
-struct {
-  FILETIME creation_time, exit_time, kernel_time, user_time;
-} started_at, stopped_at;
-#else
-static clock_t started_at, stopped_at;
-#endif
-
 static void
 die (const char *format, ...)
 {
@@ -275,6 +268,7 @@ die (const char *format, ...)
   va_end(arg_ptr);
   exit (1);
 }
+
 
 static void
 show_sexp (const char *prefix, gcry_sexp_t a)
@@ -290,74 +284,6 @@ show_sexp (const char *prefix, gcry_sexp_t a)
 
   gcry_sexp_sprint (a, GCRYSEXP_FMT_ADVANCED, buf, size);
   fprintf (stderr, "%.*s", (int)size, buf);
-}
-
-
-static void
-start_timer (void)
-{
-#ifdef _WIN32
-#ifdef __MINGW32CE__
-  GetThreadTimes (GetCurrentThread (),
-                   &started_at.creation_time, &started_at.exit_time,
-                   &started_at.kernel_time, &started_at.user_time);
-#else
-  GetProcessTimes (GetCurrentProcess (),
-                   &started_at.creation_time, &started_at.exit_time,
-                   &started_at.kernel_time, &started_at.user_time);
-#endif
-  stopped_at = started_at;
-#else
-  struct tms tmp;
-
-  times (&tmp);
-  started_at = stopped_at = tmp.tms_utime;
-#endif
-}
-
-static void
-stop_timer (void)
-{
-#ifdef _WIN32
-#ifdef __MINGW32CE__
-  GetThreadTimes (GetCurrentThread (),
-                   &stopped_at.creation_time, &stopped_at.exit_time,
-                   &stopped_at.kernel_time, &stopped_at.user_time);
-#else
-  GetProcessTimes (GetCurrentProcess (),
-                   &stopped_at.creation_time, &stopped_at.exit_time,
-                   &stopped_at.kernel_time, &stopped_at.user_time);
-#endif
-#else
-  struct tms tmp;
-
-  times (&tmp);
-  stopped_at = tmp.tms_utime;
-#endif
-}
-
-static const char *
-elapsed_time (void)
-{
-  static char buf[50];
-#if _WIN32
-  unsigned long long t1, t2, t;
-
-  t1 = (((unsigned long long)started_at.kernel_time.dwHighDateTime << 32)
-        + started_at.kernel_time.dwLowDateTime);
-  t1 += (((unsigned long long)started_at.user_time.dwHighDateTime << 32)
-        + started_at.user_time.dwLowDateTime);
-  t2 = (((unsigned long long)stopped_at.kernel_time.dwHighDateTime << 32)
-        + stopped_at.kernel_time.dwLowDateTime);
-  t2 += (((unsigned long long)stopped_at.user_time.dwHighDateTime << 32)
-        + stopped_at.user_time.dwLowDateTime);
-  t = (t2 - t1)/10000;
-  snprintf (buf, sizeof buf, "%5.0fms", (double)t );
-#else
-  snprintf (buf, sizeof buf, "%5.0fms",
-            (((double) (stopped_at - started_at))/CLOCKS_PER_SEC)*10000000);
-#endif
-  return buf;
 }
 
 
@@ -516,6 +442,161 @@ md_bench ( const char *algoname )
   fflush (stdout);
 }
 
+
+
+static void
+mac_bench ( const char *algoname )
+{
+  int algo;
+  gcry_mac_hd_t hd;
+  int step, pos, j, i, repcount;
+  char buf_base[1000+15];
+  size_t bufsize = 1000;
+  char *buf;
+  char mac[3][512];
+  char key[512];
+  unsigned int maclen, keylen;
+  size_t macoutlen;
+  gcry_error_t err = GPG_ERR_NO_ERROR;
+
+  if (!algoname)
+    {
+      for (i=1; i < 500; i++)
+        if (in_fips_mode && i == GCRY_MAC_HMAC_MD5)
+          ; /* Don't use MD5 in fips mode.  */
+        else if ( !gcry_mac_test_algo (i) )
+          mac_bench (gcry_mac_algo_name (i));
+      return;
+    }
+
+  buf = buf_base + ((16 - ((size_t)buf_base & 0x0f)) % buffer_alignment);
+
+  algo = gcry_mac_map_name (algoname);
+  if (!algo)
+    {
+      fprintf (stderr, PGM ": invalid hash algorithm `%s'\n", algoname);
+      exit (1);
+    }
+
+  maclen = gcry_mac_get_algo_maclen (algo);
+  if (maclen > sizeof(mac))
+    maclen = sizeof(mac);
+
+  keylen = gcry_mac_get_algo_keylen (algo);
+  if (keylen == 0)
+    keylen = 32;
+  if (keylen > sizeof(key))
+    keylen = sizeof(key);
+  for (i=0; i < keylen; i++)
+    key[i] = (keylen - i) ^ 0x54;
+
+  err = gcry_mac_open (&hd, algo, 0, NULL);
+  if (err)
+    {
+      fprintf (stderr, PGM ": error opening mac algorithm `%s': %s\n", algoname,
+               gpg_strerror (err));
+      exit (1);
+    }
+
+  err = gcry_mac_setkey (hd, key, keylen);
+  if (err)
+    {
+      fprintf (stderr, PGM ": error setting key for mac algorithm `%s': %s\n",
+               algoname, gpg_strerror (err));
+      exit (1);
+    }
+
+  for (i=0; i < bufsize; i++)
+    buf[i] = i;
+
+  printf ("%-20s", gcry_mac_algo_name (algo));
+
+  start_timer ();
+  for (repcount=0; repcount < mac_repetitions; repcount++)
+    for (i=0; i < 1000; i++)
+      gcry_mac_write (hd, buf, bufsize);
+  macoutlen = maclen;
+  gcry_mac_read (hd, mac[0], &macoutlen);
+  stop_timer ();
+  printf (" %s", elapsed_time ());
+  fflush (stdout);
+
+  gcry_mac_reset (hd);
+  start_timer ();
+  for (repcount=0; repcount < mac_repetitions; repcount++)
+    for (i=0; i < 1000; i++)
+      for (step=bufsize/10, pos=0, j=0; j < 10; j++, pos+=step)
+        gcry_mac_write (hd, &buf[pos], step);
+  macoutlen = maclen;
+  gcry_mac_read (hd, mac[1], &macoutlen);
+  stop_timer ();
+  printf (" %s", elapsed_time ());
+  fflush (stdout);
+
+  gcry_mac_reset (hd);
+  start_timer ();
+  for (repcount=0; repcount < mac_repetitions; repcount++)
+    for (i=0; i < 1000; i++)
+      for (step=bufsize/100, pos=0, j=0; j < 100; j++, pos+=step)
+        gcry_mac_write (hd, &buf[pos], step);
+  macoutlen = maclen;
+  gcry_mac_read (hd, mac[2], &macoutlen);
+  stop_timer ();
+  printf (" %s", elapsed_time ());
+  fflush (stdout);
+
+  gcry_mac_close (hd);
+
+  for (i=1; i < 3; i++)
+    {
+      if (memcmp(mac[i-1], mac[i], maclen))
+        {
+          fprintf (stderr, PGM ": mac mismatch with algorithm `%s'\n",
+                   algoname);
+          exit(1);
+        }
+    }
+
+  putchar ('\n');
+  fflush (stdout);
+}
+
+
+#ifdef HAVE_U64_TYPEDEF
+static void ccm_aead_init(gcry_cipher_hd_t hd, size_t buflen, int authlen)
+{
+  const int _L = 4;
+  const int noncelen = 15 - _L;
+  char nonce[noncelen];
+  u64 params[3];
+  gcry_error_t err = GPG_ERR_NO_ERROR;
+
+  memset (nonce, 0x33, noncelen);
+
+  err = gcry_cipher_setiv (hd, nonce, noncelen);
+  if (err)
+    {
+      fprintf (stderr, "gcry_cipher_setiv failed: %s\n",
+               gpg_strerror (err));
+      gcry_cipher_close (hd);
+      exit (1);
+    }
+
+  params[0] = buflen; /* encryptedlen */
+  params[1] = 0; /* aadlen */
+  params[2] = authlen; /* authtaglen */
+  err = gcry_cipher_ctl (hd, GCRYCTL_SET_CCM_LENGTHS, params, sizeof(params));
+  if (err)
+    {
+      fprintf (stderr, "gcry_cipher_setiv failed: %s\n",
+               gpg_strerror (err));
+      gcry_cipher_close (hd);
+      exit (1);
+    }
+}
+#endif
+
+
 static void
 cipher_bench ( const char *algoname )
 {
@@ -529,12 +610,25 @@ cipher_bench ( const char *algoname )
   char *raw_outbuf, *raw_buf;
   size_t allocated_buflen, buflen;
   int repetitions;
-  static struct { int mode; const char *name; int blocked; } modes[] = {
+  static const struct {
+    int mode;
+    const char *name;
+    int blocked;
+    void (* const aead_init)(gcry_cipher_hd_t hd, size_t buflen, int authlen);
+    int req_blocksize;
+    int authlen;
+  } modes[] = {
     { GCRY_CIPHER_MODE_ECB, "   ECB/Stream", 1 },
     { GCRY_CIPHER_MODE_CBC, "      CBC", 1 },
     { GCRY_CIPHER_MODE_CFB, "      CFB", 0 },
     { GCRY_CIPHER_MODE_OFB, "      OFB", 0 },
     { GCRY_CIPHER_MODE_CTR, "      CTR", 0 },
+#ifdef HAVE_U64_TYPEDEF
+    { GCRY_CIPHER_MODE_CCM, "      CCM", 0,
+      ccm_aead_init, GCRY_CCM_BLOCK_LEN, 8 },
+#endif
+    { GCRY_CIPHER_MODE_GCM, "      GCM", 0,
+      NULL, GCRY_GCM_BLOCK_LEN, GCRY_GCM_BLOCK_LEN },
     { GCRY_CIPHER_MODE_STREAM, "", 0 },
     {0}
   };
@@ -562,7 +656,7 @@ cipher_bench ( const char *algoname )
     }
   repetitions *= cipher_repetitions;
 
-  raw_buf = gcry_xmalloc (allocated_buflen+15);
+  raw_buf = gcry_xcalloc (allocated_buflen+15, 1);
   buf = (raw_buf
          + ((16 - ((size_t)raw_buf & 0x0f)) % buffer_alignment));
   outbuf = raw_outbuf = gcry_xmalloc (allocated_buflen+15);
@@ -623,8 +717,15 @@ cipher_bench ( const char *algoname )
   for (modeidx=0; modes[modeidx].mode; modeidx++)
     {
       if ((blklen > 1 && modes[modeidx].mode == GCRY_CIPHER_MODE_STREAM)
-          | (blklen == 1 && modes[modeidx].mode != GCRY_CIPHER_MODE_STREAM))
+          || (blklen == 1 && modes[modeidx].mode != GCRY_CIPHER_MODE_STREAM))
         continue;
+
+      if (modes[modeidx].req_blocksize > 0
+          && blklen != modes[modeidx].req_blocksize)
+        {
+          printf (" %7s %7s", "-", "-" );
+          continue;
+        }
 
       for (i=0; i < sizeof buf; i++)
         buf[i] = i;
@@ -666,7 +767,18 @@ cipher_bench ( const char *algoname )
                   exit (1);
                 }
             }
-          err = gcry_cipher_encrypt ( hd, outbuf, buflen, buf, buflen);
+          if (modes[modeidx].aead_init)
+            {
+              (*modes[modeidx].aead_init) (hd, buflen, modes[modeidx].authlen);
+              err = gcry_cipher_encrypt (hd, outbuf, buflen, buf, buflen);
+              if (err)
+                break;
+              err = gcry_cipher_gettag (hd, outbuf, modes[modeidx].authlen);
+            }
+          else
+            {
+              err = gcry_cipher_encrypt (hd, outbuf, buflen, buf, buflen);
+            }
         }
       stop_timer ();
 
@@ -713,7 +825,18 @@ cipher_bench ( const char *algoname )
                   exit (1);
                 }
             }
-          err = gcry_cipher_decrypt ( hd, outbuf, buflen,  buf, buflen);
+          if (modes[modeidx].aead_init)
+            {
+              (*modes[modeidx].aead_init) (hd, buflen, modes[modeidx].authlen);
+              err = gcry_cipher_decrypt (hd, outbuf, buflen, buf, buflen);
+              if (err)
+                break;
+              err = gcry_cipher_checktag (hd, outbuf, modes[modeidx].authlen);
+              if (gpg_err_code (err) == GPG_ERR_CHECKSUM)
+                err = gpg_error (GPG_ERR_NO_ERROR);
+            }
+          else
+            err = gcry_cipher_decrypt (hd, outbuf, buflen, buf, buflen);
         }
       stop_timer ();
       printf (" %s", elapsed_time ());
@@ -863,7 +986,7 @@ dsa_bench (int iterations, int print_header)
   int p_sizes[3] = { 1024, 2048, 3072 };
   int q_sizes[3] = { 160, 224, 256 };
   gcry_sexp_t data;
-  gcry_sexp_t sig;
+  gcry_sexp_t sig = NULL;
   int i, j;
 
   err = gcry_sexp_sscan (pub_key+0, NULL, sample_public_dsa_key_1024,
@@ -915,6 +1038,7 @@ dsa_bench (int iterations, int print_header)
       start_timer ();
       for (j=0; j < iterations; j++)
         {
+          gcry_sexp_release (sig);
           err = gcry_pk_sign (&sig, data, sec_key[i]);
           if (err)
             {
@@ -946,6 +1070,7 @@ dsa_bench (int iterations, int print_header)
 
       gcry_sexp_release (sig);
       gcry_sexp_release (data);
+      sig = NULL;
     }
 
 
@@ -962,7 +1087,8 @@ ecc_bench (int iterations, int print_header)
 {
 #if USE_ECC
   gpg_error_t err;
-  int p_sizes[] = { 192, 224, 256, 384, 521 };
+  const char *p_sizes[] = { "192", "224", "256", "384", "521", "Ed25519",
+              "gost256", "gost512" };
   int testno;
 
   if (print_header)
@@ -976,12 +1102,42 @@ ecc_bench (int iterations, int print_header)
       gcry_sexp_t data;
       gcry_sexp_t sig = NULL;
       int count;
+      int p_size;
+      int is_ed25519;
+      int is_gost;
 
-      printf ("ECDSA %3d bit ", p_sizes[testno]);
+      is_ed25519 = !strcmp (p_sizes[testno], "Ed25519");
+      is_gost = !strncmp (p_sizes[testno], "gost", 4);
+      if (is_ed25519)
+        {
+          p_size = 256;
+          printf ("EdDSA Ed25519 ");
+          fflush (stdout);
+        }
+      else if (is_gost)
+        {
+          p_size = atoi (p_sizes[testno] + 4);
+          printf ("GOST  %3d bit ", p_size);
+          fflush (stdout);
+        }
+      else
+        {
+          p_size = atoi (p_sizes[testno]);
+          printf ("ECDSA %3d bit ", p_size);
+        }
       fflush (stdout);
 
-      err = gcry_sexp_build (&key_spec, NULL,
-                             "(genkey (ECDSA (nbits %d)))", p_sizes[testno]);
+      if (is_ed25519)
+        err = gcry_sexp_build (&key_spec, NULL,
+                               "(genkey (ecdsa (curve \"Ed25519\")"
+                               "(flags eddsa)))");
+      else if (is_gost)
+        err = gcry_sexp_build (&key_spec, NULL,
+                               "(genkey (ecdsa (curve %s)))",
+                               p_size == 256 ? "GOST2001-test" : "GOST2012-test");
+      else
+        err = gcry_sexp_build (&key_spec, NULL,
+                               "(genkey (ECDSA (nbits %d)))", p_size);
       if (err)
         die ("creating S-expression failed: %s\n", gcry_strerror (err));
 
@@ -989,7 +1145,9 @@ ecc_bench (int iterations, int print_header)
       err = gcry_pk_genkey (&key_pair, key_spec);
       if (err)
         die ("creating %d bit ECC key failed: %s\n",
-             p_sizes[testno], gcry_strerror (err));
+             p_size, gcry_strerror (err));
+      if (verbose > 2)
+        show_sexp ("ECC key:\n", key_pair);
 
       pub_key = gcry_sexp_find_token (key_pair, "public-key", 0);
       if (! pub_key)
@@ -1004,10 +1162,18 @@ ecc_bench (int iterations, int print_header)
       printf ("     %s", elapsed_time ());
       fflush (stdout);
 
-      x = gcry_mpi_new (p_sizes[testno]);
-      gcry_mpi_randomize (x, p_sizes[testno], GCRY_WEAK_RANDOM);
-      err = gcry_sexp_build (&data, NULL, "(data (flags raw) (value %m))", x);
+      x = gcry_mpi_new (p_size);
+      gcry_mpi_randomize (x, p_size, GCRY_WEAK_RANDOM);
+      if (is_ed25519)
+        err = gcry_sexp_build (&data, NULL,
+                               "(data (flags eddsa)(hash-algo sha512)"
+                               " (value %m))", x);
+      else if (is_gost)
+        err = gcry_sexp_build (&data, NULL, "(data (flags gost) (value %m))", x);
+      else
+        err = gcry_sexp_build (&data, NULL, "(data (flags raw) (value %m))", x);
       gcry_mpi_release (x);
+
       if (err)
         die ("converting data failed: %s\n", gcry_strerror (err));
 
@@ -1017,7 +1183,15 @@ ecc_bench (int iterations, int print_header)
           gcry_sexp_release (sig);
           err = gcry_pk_sign (&sig, data, sec_key);
           if (err)
-            die ("signing failed: %s\n", gpg_strerror (err));
+            {
+              if (verbose)
+                {
+                  putc ('\n', stderr);
+                  show_sexp ("signing key:\n", sec_key);
+                  show_sexp ("signed data:\n", data);
+                }
+              die ("signing failed: %s\n", gpg_strerror (err));
+            }
         }
       stop_timer ();
       printf ("   %s", elapsed_time ());
@@ -1119,12 +1293,26 @@ main( int argc, char **argv )
   int last_argc = -1;
   int no_blinding = 0;
   int use_random_daemon = 0;
+  int use_secmem = 0;
   int with_progress = 0;
+  int debug = 0;
+  int pk_count = 100;
 
   buffer_alignment = 1;
 
   if (argc)
     { argc--; argv++; }
+
+  /* We skip this test if we are running under the test suite (no args
+     and srcdir defined) and GCRYPT_NO_BENCHMARKS is set.  */
+  if (!argc && getenv ("srcdir") && getenv ("GCRYPT_NO_BENCHMARKS"))
+    exit (77);
+
+  if (getenv ("GCRYPT_IN_REGRESSION_TEST"))
+    {
+      in_regression_test = 1;
+      pk_count = 10;
+    }
 
   while (argc && last_argc != argc )
     {
@@ -1137,7 +1325,7 @@ main( int argc, char **argv )
       else if (!strcmp (*argv, "--help"))
         {
           fputs ("usage: benchmark "
-                 "[md|cipher|random|mpi|rsa|dsa|ecc [algonames]]\n",
+                 "[md|mac|cipher|random|mpi|rsa|dsa|ecc [algonames]]\n",
                  stdout);
           exit (0);
         }
@@ -1146,9 +1334,37 @@ main( int argc, char **argv )
           verbose++;
           argc--; argv++;
         }
+      else if (!strcmp (*argv, "--debug"))
+        {
+          verbose += 2;
+          debug++;
+          argc--; argv++;
+        }
       else if (!strcmp (*argv, "--use-random-daemon"))
         {
           use_random_daemon = 1;
+          argc--; argv++;
+        }
+      else if (!strcmp (*argv, "--use-secmem"))
+        {
+          use_secmem = 1;
+          argc--; argv++;
+        }
+      else if (!strcmp (*argv, "--prefer-standard-rng"))
+        {
+          /* This is anyway the default, but we may want to use it for
+             debugging. */
+          gcry_control (GCRYCTL_SET_PREFERRED_RNG_TYPE, GCRY_RNG_TYPE_STANDARD);
+          argc--; argv++;
+        }
+      else if (!strcmp (*argv, "--prefer-fips-rng"))
+        {
+          gcry_control (GCRYCTL_SET_PREFERRED_RNG_TYPE, GCRY_RNG_TYPE_FIPS);
+          argc--; argv++;
+        }
+      else if (!strcmp (*argv, "--prefer-system-rng"))
+        {
+          gcry_control (GCRYCTL_SET_PREFERRED_RNG_TYPE, GCRY_RNG_TYPE_SYSTEM);
           argc--; argv++;
         }
       else if (!strcmp (*argv, "--no-blinding"))
@@ -1181,6 +1397,24 @@ main( int argc, char **argv )
           if (argc)
             {
               hash_repetitions = atoi(*argv);
+              argc--; argv++;
+            }
+        }
+      else if (!strcmp (*argv, "--mac-repetitions"))
+        {
+          argc--; argv++;
+          if (argc)
+            {
+              mac_repetitions = atoi(*argv);
+              argc--; argv++;
+            }
+        }
+      else if (!strcmp (*argv, "--pk-count"))
+        {
+          argc--; argv++;
+          if (argc)
+            {
+              pk_count = atoi(*argv);
               argc--; argv++;
             }
         }
@@ -1229,9 +1463,12 @@ main( int argc, char **argv )
       exit (1);
     }
 
+  if (debug)
+    gcry_control (GCRYCTL_SET_DEBUG_FLAGS, 1u , 0);
+
   if (gcry_fips_mode_active ())
     in_fips_mode = 1;
-  else
+  else if (!use_secmem)
     gcry_control (GCRYCTL_DISABLE_SECMEM, 0);
 
   if (use_random_daemon)
@@ -1246,17 +1483,24 @@ main( int argc, char **argv )
     cipher_repetitions = 1;
   if (hash_repetitions < 1)
     hash_repetitions = 1;
+  if (mac_repetitions < 1)
+    mac_repetitions = 1;
+
+  if (in_regression_test)
+    fputs ("Note: " PGM " running in quick regression test mode.\n", stdout);
 
   if ( !argc )
     {
       gcry_control (GCRYCTL_ENABLE_QUICK_RANDOM, 0);
       md_bench (NULL);
       putchar ('\n');
+      mac_bench (NULL);
+      putchar ('\n');
       cipher_bench (NULL);
       putchar ('\n');
-      rsa_bench (100, 1, no_blinding);
-      dsa_bench (100, 0);
-      ecc_bench (100, 0);
+      rsa_bench (pk_count, 1, no_blinding);
+      dsa_bench (pk_count, 0);
+      ecc_bench (pk_count, 0);
       putchar ('\n');
       mpi_bench ();
       putchar ('\n');
@@ -1283,6 +1527,14 @@ main( int argc, char **argv )
         for (argc--, argv++; argc; argc--, argv++)
           md_bench ( *argv );
     }
+  else if ( !strcmp (*argv, "mac"))
+    {
+      if (argc == 1)
+        mac_bench (NULL);
+      else
+        for (argc--, argv++; argc; argc--, argv++)
+          mac_bench ( *argv );
+    }
   else if ( !strcmp (*argv, "cipher"))
     {
       if (argc == 1)
@@ -1298,17 +1550,17 @@ main( int argc, char **argv )
   else if ( !strcmp (*argv, "rsa"))
     {
         gcry_control (GCRYCTL_ENABLE_QUICK_RANDOM, 0);
-        rsa_bench (100, 1, no_blinding);
+        rsa_bench (pk_count, 1, no_blinding);
     }
   else if ( !strcmp (*argv, "dsa"))
     {
         gcry_control (GCRYCTL_ENABLE_QUICK_RANDOM, 0);
-        dsa_bench (100, 1);
+        dsa_bench (pk_count, 1);
     }
   else if ( !strcmp (*argv, "ecc"))
     {
         gcry_control (GCRYCTL_ENABLE_QUICK_RANDOM, 0);
-        ecc_bench (100, 1);
+        ecc_bench (pk_count, 1);
     }
   else
     {
