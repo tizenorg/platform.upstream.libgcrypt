@@ -129,10 +129,10 @@ _gcry_rndegd_set_socket_name (const char *name)
   newname = my_make_filename (name, NULL);
   if (strlen (newname)+1 >= sizeof addr.sun_path)
     {
-      xfree (newname);
+      gcry_free (newname);
       return gpg_error_from_syserror ();
     }
-  xfree (user_socket_name);
+  gcry_free (user_socket_name);
   user_socket_name = newname;
   return 0;
 }
@@ -195,7 +195,7 @@ _gcry_rndegd_connect_socket (int nofail)
       close (fd);
       fd = -1;
     }
-  xfree (name);
+  gcry_free(name);
   if (fd != -1)
     egd_socket = fd;
   return fd;

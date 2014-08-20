@@ -28,7 +28,6 @@
    sensitive data.
  */
 
-#error This dameon needs to be fixed due to the ath changes
 
 #include <config.h>
 #include <stdio.h>
@@ -270,7 +269,7 @@ call_daemon (const char *socketname,
       if (rc == -1)
 	{
 	  err = gcry_error_from_errno (errno);
-	  log_error ("read error: %s\n", _gcry_strerror (err));
+	  log_error ("read error: %s\n", gcry_strerror (err));
 	  break;
 	}
       if (nread && buf[0])
@@ -308,7 +307,7 @@ call_daemon (const char *socketname,
       if (rc == -1)
 	{
 	  err = gcry_error_from_errno (errno);
-	  log_error ("read error: %s\n", _gcry_strerror (err));
+	  log_error ("read error: %s\n", gcry_strerror (err));
 	  break;
 	}
 
@@ -341,6 +340,19 @@ _gcry_daemon_randomize (const char *socketname,
   gcry_error_t err;
 
   err = call_daemon (socketname, buffer, length, 0, level);
+
+  return err ? -1 : 0;
+}
+
+
+/* Internal function to fill BUFFER with NBYTES of data usable for a
+   nonce.  Returns 0 on success. */
+int
+_gcry_daemon_create_nonce (const char *socketname, void *buffer, size_t length)
+{
+  gcry_error_t err;
+
+  err = call_daemon (socketname, buffer, length, 1, 0);
 
   return err ? -1 : 0;
 }

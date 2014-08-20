@@ -26,10 +26,7 @@
 void _gcry_register_random_progress (void (*cb)(void *,const char*,int,int,int),
                                      void *cb_data );
 
-void _gcry_set_preferred_rng_type (int type);
 void _gcry_random_initialize (int full);
-void _gcry_random_close_fds (void);
-int  _gcry_get_rng_type (int ignore_fips_mode);
 void _gcry_random_dump_stats(void);
 void _gcry_secure_random_alloc(void);
 void _gcry_enable_quick_random_gen (void);
@@ -64,6 +61,8 @@ void _gcry_daemon_initialize_basics (void);
 int _gcry_daemon_randomize (const char *socketname,
                             void *buffer, size_t length,
                             enum gcry_random_level level);
+int _gcry_daemon_create_nonce (const char *socketname,
+                               void *buffer, size_t length);
 #endif /*USE_RANDOM_DAEMON*/
 
 #endif /*G10_RANDOM_H*/

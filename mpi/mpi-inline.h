@@ -28,15 +28,8 @@
 #ifndef G10_MPI_INLINE_H
 #define G10_MPI_INLINE_H
 
-/* Starting with gcc 4.3 "extern inline" conforms in c99 mode to the
-   c99 semantics.  To keep the useful old semantics we use an
-   attribute.  */
 #ifndef G10_MPI_INLINE_DECL
-# ifdef __GNUC_STDC_INLINE__
-#  define G10_MPI_INLINE_DECL  extern inline __attribute__ ((__gnu_inline__))
-# else
-#  define G10_MPI_INLINE_DECL  extern __inline__
-# endif
+#define G10_MPI_INLINE_DECL  extern __inline__
 #endif
 
 G10_MPI_INLINE_DECL  mpi_limb_t

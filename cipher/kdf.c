@@ -1,6 +1,5 @@
 /* kdf.c  - Key Derivation Functions
  * Copyright (C) 1998, 2011 Free Software Foundation, Inc.
- * Copyright (C) 2013 g10 Code GmbH
  *
  * This file is part of Libgcrypt.
  *
@@ -27,7 +26,6 @@
 #include "g10lib.h"
 #include "cipher.h"
 #include "ath.h"
-#include "kdf-internal.h"
 
 
 /* Transform a passphrase into a suitable key of length KEYSIZE and
@@ -35,7 +33,7 @@
    must provide an HASHALGO, a valid ALGO and depending on that algo a
    SALT of 8 bytes and the number of ITERATIONS.  Code taken from
    gnupg/agent/protect.c:hash_passphrase.  */
-static gpg_err_code_t
+gpg_err_code_t
 openpgp_s2k (const void *passphrase, size_t passphraselen,
              int algo, int hashalgo,
              const void *salt, size_t saltlen,
@@ -53,9 +51,10 @@ openpgp_s2k (const void *passphrase, size_t passphraselen,
       && (!salt || saltlen != 8))
     return GPG_ERR_INV_VALUE;
 
-  secmode = _gcry_is_secure (passphrase) || _gcry_is_secure (keybuffer);
+  secmode = gcry_is_secure (passphrase) || gcry_is_secure (keybuffer);
 
-  ec = _gcry_md_open (&md, hashalgo, secmode? GCRY_MD_FLAG_SECURE : 0);
+  ec = gpg_err_code (gcry_md_open (&md, hashalgo,
+                                   secmode? GCRY_MD_FLAG_SECURE : 0));
   if (ec)
     return ec;
 
@@ -63,9 +62,9 @@ openpgp_s2k (const void *passphrase, size_t passphraselen,
     {
       if (pass)
         {
-          _gcry_md_reset (md);
+          gcry_md_reset (md);
           for (i=0; i < pass; i++) /* Preset the hash context.  */
-            _gcry_md_putc (md, 0);
+            gcry_md_putc (md, 0);
 	}
 
       if (algo == GCRY_KDF_SALTED_S2K || algo == GCRY_KDF_ITERSALTED_S2K)
@@ -82,30 +81,30 @@ openpgp_s2k (const void *passphrase, size_t passphraselen,
 
           while (count > len2)
             {
-              _gcry_md_write (md, salt, saltlen);
-              _gcry_md_write (md, passphrase, passphraselen);
+              gcry_md_write (md, salt, saltlen);
+              gcry_md_write (md, passphrase, passphraselen);
               count -= len2;
             }
           if (count < saltlen)
-            _gcry_md_write (md, salt, count);
+            gcry_md_write (md, salt, count);
           else
             {
-              _gcry_md_write (md, salt, saltlen);
+              gcry_md_write (md, salt, saltlen);
               count -= saltlen;
-              _gcry_md_write (md, passphrase, count);
+              gcry_md_write (md, passphrase, count);
             }
         }
       else
-        _gcry_md_write (md, passphrase, passphraselen);
+        gcry_md_write (md, passphrase, passphraselen);
 
-      _gcry_md_final (md);
-      i = _gcry_md_get_algo_dlen (hashalgo);
+      gcry_md_final (md);
+      i = gcry_md_get_algo_dlen (hashalgo);
       if (i > keysize - used)
         i = keysize - used;
-      memcpy (key+used, _gcry_md_read (md, hashalgo), i);
+      memcpy (key+used, gcry_md_read (md, hashalgo), i);
       used += i;
     }
-  _gcry_md_close (md);
+  gcry_md_close (md);
   return 0;
 }
 
@@ -117,11 +116,11 @@ openpgp_s2k (const void *passphrase, size_t passphraselen,
    used in HMAC mode.  SALT is a salt of length SALTLEN and ITERATIONS
    gives the number of iterations.  */
 gpg_err_code_t
-_gcry_kdf_pkdf2 (const void *passphrase, size_t passphraselen,
-                 int hashalgo,
-                 const void *salt, size_t saltlen,
-                 unsigned long iterations,
-                 size_t keysize, void *keybuffer)
+pkdf2 (const void *passphrase, size_t passphraselen,
+       int hashalgo,
+       const void *salt, size_t saltlen,
+       unsigned long iterations,
+       size_t keysize, void *keybuffer)
 {
   gpg_err_code_t ec;
   gcry_md_hd_t md;
@@ -139,17 +138,14 @@ _gcry_kdf_pkdf2 (const void *passphrase, size_t passphraselen,
   unsigned long iter;  /* Current iteration number.  */
   unsigned int i;
 
-  /* NWe allow for a saltlen of 0 here to support scrypt.  It is not
-     clear whether rfc2898 allows for this this, thus we do a test on
-     saltlen > 0 only in gcry_kdf_derive.  */
-  if (!salt || !iterations || !dklen)
+  if (!salt || !saltlen || !iterations || !dklen)
     return GPG_ERR_INV_VALUE;
 
-  hlen = _gcry_md_get_algo_dlen (hashalgo);
+  hlen = gcry_md_get_algo_dlen (hashalgo);
   if (!hlen)
     return GPG_ERR_DIGEST_ALGO;
 
-  secmode = _gcry_is_secure (passphrase) || _gcry_is_secure (keybuffer);
+  secmode = gcry_is_secure (passphrase) || gcry_is_secure (keybuffer);
 
   /* We ignore step 1 from pksc5v2.1 which demands a check that dklen
      is not larger that 0xffffffff * hlen.  */
@@ -160,26 +156,19 @@ _gcry_kdf_pkdf2 (const void *passphrase, size_t passphraselen,
 
   /* Setup buffers and prepare a hash context.  */
   sbuf = (secmode
-          ? xtrymalloc_secure (saltlen + 4 + hlen + hlen)
-          : xtrymalloc (saltlen + 4 + hlen + hlen));
+          ? gcry_malloc_secure (saltlen + 4 + hlen + hlen)
+          : gcry_malloc (saltlen + 4 + hlen + hlen));
   if (!sbuf)
     return gpg_err_code_from_syserror ();
   tbuf = sbuf + saltlen + 4;
   ubuf = tbuf + hlen;
 
-  ec = _gcry_md_open (&md, hashalgo, (GCRY_MD_FLAG_HMAC
-                                      | (secmode?GCRY_MD_FLAG_SECURE:0)));
+  ec = gpg_err_code (gcry_md_open (&md, hashalgo,
+                                   (GCRY_MD_FLAG_HMAC
+                                    | (secmode?GCRY_MD_FLAG_SECURE:0))));
   if (ec)
     {
-      xfree (sbuf);
-      return ec;
-    }
-
-  ec = _gcry_md_setkey (md, passphrase, passphraselen);
-  if (ec)
-    {
-      _gcry_md_close (md);
-      xfree (sbuf);
+      gcry_free (sbuf);
       return ec;
     }
 
@@ -189,21 +178,27 @@ _gcry_kdf_pkdf2 (const void *passphrase, size_t passphraselen,
     {
       for (iter = 0; iter < iterations; iter++)
         {
-          _gcry_md_reset (md);
+          ec = gpg_err_code (gcry_md_setkey (md, passphrase, passphraselen));
+          if (ec)
+            {
+              gcry_md_close (md);
+              gcry_free (sbuf);
+              return ec;
+            }
           if (!iter) /* Compute U_1:  */
             {
               sbuf[saltlen]     = (lidx >> 24);
               sbuf[saltlen + 1] = (lidx >> 16);
               sbuf[saltlen + 2] = (lidx >> 8);
               sbuf[saltlen + 3] = lidx;
-              _gcry_md_write (md, sbuf, saltlen + 4);
-              memcpy (ubuf, _gcry_md_read (md, 0), hlen);
+              gcry_md_write (md, sbuf, saltlen + 4);
+              memcpy (ubuf, gcry_md_read (md, 0), hlen);
               memcpy (tbuf, ubuf, hlen);
             }
           else /* Compute U_(2..c):  */
             {
-              _gcry_md_write (md, ubuf, hlen);
-              memcpy (ubuf, _gcry_md_read (md, 0), hlen);
+              gcry_md_write (md, ubuf, hlen);
+              memcpy (ubuf, gcry_md_read (md, 0), hlen);
               for (i=0; i < hlen; i++)
                 tbuf[i] ^= ubuf[i];
             }
@@ -217,8 +212,8 @@ _gcry_kdf_pkdf2 (const void *passphrase, size_t passphraselen,
         }
     }
 
-  _gcry_md_close (md);
-  xfree (sbuf);
+  gcry_md_close (md);
+  gcry_free (sbuf);
   return 0;
 }
 
@@ -234,21 +229,20 @@ _gcry_kdf_pkdf2 (const void *passphrase, size_t passphraselen,
    is a salt as needed by most KDF algorithms.  ITERATIONS is a
    positive integer parameter to most KDFs.  0 is returned on success,
    or an error code on failure.  */
-gpg_err_code_t
-_gcry_kdf_derive (const void *passphrase, size_t passphraselen,
-                  int algo, int subalgo,
-                  const void *salt, size_t saltlen,
-                  unsigned long iterations,
-                  size_t keysize, void *keybuffer)
+gpg_error_t
+gcry_kdf_derive (const void *passphrase, size_t passphraselen,
+                 int algo, int subalgo,
+                 const void *salt, size_t saltlen,
+                 unsigned long iterations,
+                 size_t keysize, void *keybuffer)
 {
   gpg_err_code_t ec;
 
-  if (!passphrase)
+  if (!passphrase || !passphraselen)
     {
       ec = GPG_ERR_INV_DATA;
       goto leave;
     }
-
   if (!keybuffer || !keysize)
     {
       ec = GPG_ERR_INV_VALUE;
@@ -261,11 +255,8 @@ _gcry_kdf_derive (const void *passphrase, size_t passphraselen,
     case GCRY_KDF_SIMPLE_S2K:
     case GCRY_KDF_SALTED_S2K:
     case GCRY_KDF_ITERSALTED_S2K:
-      if (!passphraselen)
-        ec = GPG_ERR_INV_DATA;
-      else
-        ec = openpgp_s2k (passphrase, passphraselen, algo, subalgo,
-                          salt, saltlen, iterations, keysize, keybuffer);
+      ec = openpgp_s2k (passphrase, passphraselen, algo, subalgo,
+                        salt, saltlen, iterations, keysize, keybuffer);
       break;
 
     case GCRY_KDF_PBKDF1:
@@ -273,21 +264,8 @@ _gcry_kdf_derive (const void *passphrase, size_t passphraselen,
       break;
 
     case GCRY_KDF_PBKDF2:
-      if (!saltlen)
-        ec = GPG_ERR_INV_VALUE;
-      else
-        ec = _gcry_kdf_pkdf2 (passphrase, passphraselen, subalgo,
-                              salt, saltlen, iterations, keysize, keybuffer);
-      break;
-
-    case 41:
-    case GCRY_KDF_SCRYPT:
-#if USE_SCRYPT
-      ec = _gcry_kdf_scrypt (passphrase, passphraselen, algo, subalgo,
-                             salt, saltlen, iterations, keysize, keybuffer);
-#else
-      ec = GPG_ERR_UNSUPPORTED_ALGORITHM;
-#endif /*USE_SCRYPT*/
+      ec = pkdf2 (passphrase, passphraselen, subalgo,
+                  salt, saltlen, iterations, keysize, keybuffer);
       break;
 
     default:
@@ -296,5 +274,5 @@ _gcry_kdf_derive (const void *passphrase, size_t passphraselen,
     }
 
  leave:
-  return ec;
+  return gpg_error (ec);
 }

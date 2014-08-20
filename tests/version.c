@@ -33,7 +33,7 @@
 #include <string.h>
 #include <stdarg.h>
 
-#include "../src/gcrypt-int.h"
+#include "../src/gcrypt.h"
 
 #define PGM "version"
 

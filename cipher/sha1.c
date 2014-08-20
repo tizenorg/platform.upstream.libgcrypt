@@ -38,17 +38,8 @@
 
 #include "g10lib.h"
 #include "bithelp.h"
-#include "bufhelp.h"
 #include "cipher.h"
 #include "hash-common.h"
-
-
-/* USE_SSSE3 indicates whether to compile with Intel SSSE3 code. */
-#undef USE_SSSE3
-#if defined(__x86_64__) && defined(HAVE_COMPATIBLE_GCC_AMD64_PLATFORM_AS) && \
-    defined(HAVE_GCC_INLINE_ASM_SSSE3)
-# define USE_SSSE3 1
-#endif
 
 
 /* A macro to test whether P is properly aligned for an u32 type.
@@ -60,41 +51,31 @@
 /* # define U32_ALIGNED_P(p) (!(((uintptr_t)p) % sizeof (u32))) */
 /* #endif */
 
+#define TRANSFORM(x,d,n) transform ((x), (d), (n))
+
+
 typedef struct
 {
-  gcry_md_block_ctx_t bctx;
   u32           h0,h1,h2,h3,h4;
-#ifdef USE_SSSE3
-  unsigned int use_ssse3:1;
-#endif
+  u32           nblocks;
+  unsigned char buf[64];
+  int           count;
 } SHA1_CONTEXT;
 
-static unsigned int
-transform (void *c, const unsigned char *data);
 
 
 static void
-sha1_init (void *context, unsigned int flags)
+sha1_init (void *context)
 {
   SHA1_CONTEXT *hd = context;
-
-  (void)flags;
 
   hd->h0 = 0x67452301;
   hd->h1 = 0xefcdab89;
   hd->h2 = 0x98badcfe;
   hd->h3 = 0x10325476;
   hd->h4 = 0xc3d2e1f0;
-
-  hd->bctx.nblocks = 0;
-  hd->bctx.nblocks_high = 0;
-  hd->bctx.count = 0;
-  hd->bctx.blocksize = 64;
-  hd->bctx.bwrite = transform;
-
-#ifdef USE_SSSE3
-  hd->use_ssse3 = (_gcry_get_hw_features () & HWF_INTEL_SSSE3) != 0;
-#endif
+  hd->nblocks = 0;
+  hd->count = 0;
 }
 
 
@@ -123,17 +104,33 @@ sha1_init (void *context, unsigned int flags)
 /*
  * Transform NBLOCKS of each 64 bytes (16 32-bit words) at DATA.
  */
-static unsigned int
-_transform (void *ctx, const unsigned char *data)
+static void
+transform (SHA1_CONTEXT *hd, const unsigned char *data, size_t nblocks)
 {
-  SHA1_CONTEXT *hd = ctx;
-  const u32 *idata = (const void *)data;
   register u32 a, b, c, d, e; /* Local copies of the chaining variables.  */
   register u32 tm;            /* Helper.  */
   u32 x[16];                  /* The array we work on. */
 
-#define I(i) (x[i] = buf_get_be32(idata + i))
+  /* Loop over all blocks.  */
+  for ( ;nblocks; nblocks--)
+    {
+#ifdef WORDS_BIGENDIAN
+      memcpy (x, data, 64);
+      data += 64;
+#else
+      {
+        int i;
+        unsigned char *p;
 
+        for(i=0, p=(unsigned char*)x; i < 16; i++, p += 4 )
+          {
+            p[3] = *data++;
+            p[2] = *data++;
+            p[1] = *data++;
+            p[0] = *data++;
+          }
+      }
+#endif
       /* Get the values of the chaining variables. */
       a = hd->h0;
       b = hd->h1;
@@ -142,22 +139,22 @@ _transform (void *ctx, const unsigned char *data)
       e = hd->h4;
 
       /* Transform. */
-      R( a, b, c, d, e, F1, K1, I( 0) );
-      R( e, a, b, c, d, F1, K1, I( 1) );
-      R( d, e, a, b, c, F1, K1, I( 2) );
-      R( c, d, e, a, b, F1, K1, I( 3) );
-      R( b, c, d, e, a, F1, K1, I( 4) );
-      R( a, b, c, d, e, F1, K1, I( 5) );
-      R( e, a, b, c, d, F1, K1, I( 6) );
-      R( d, e, a, b, c, F1, K1, I( 7) );
-      R( c, d, e, a, b, F1, K1, I( 8) );
-      R( b, c, d, e, a, F1, K1, I( 9) );
-      R( a, b, c, d, e, F1, K1, I(10) );
-      R( e, a, b, c, d, F1, K1, I(11) );
-      R( d, e, a, b, c, F1, K1, I(12) );
-      R( c, d, e, a, b, F1, K1, I(13) );
-      R( b, c, d, e, a, F1, K1, I(14) );
-      R( a, b, c, d, e, F1, K1, I(15) );
+      R( a, b, c, d, e, F1, K1, x[ 0] );
+      R( e, a, b, c, d, F1, K1, x[ 1] );
+      R( d, e, a, b, c, F1, K1, x[ 2] );
+      R( c, d, e, a, b, F1, K1, x[ 3] );
+      R( b, c, d, e, a, F1, K1, x[ 4] );
+      R( a, b, c, d, e, F1, K1, x[ 5] );
+      R( e, a, b, c, d, F1, K1, x[ 6] );
+      R( d, e, a, b, c, F1, K1, x[ 7] );
+      R( c, d, e, a, b, F1, K1, x[ 8] );
+      R( b, c, d, e, a, F1, K1, x[ 9] );
+      R( a, b, c, d, e, F1, K1, x[10] );
+      R( e, a, b, c, d, F1, K1, x[11] );
+      R( d, e, a, b, c, F1, K1, x[12] );
+      R( c, d, e, a, b, F1, K1, x[13] );
+      R( b, c, d, e, a, F1, K1, x[14] );
+      R( a, b, c, d, e, F1, K1, x[15] );
       R( e, a, b, c, d, F1, K1, M(16) );
       R( d, e, a, b, c, F1, K1, M(17) );
       R( c, d, e, a, b, F1, K1, M(18) );
@@ -229,29 +226,53 @@ _transform (void *ctx, const unsigned char *data)
       hd->h2 += c;
       hd->h3 += d;
       hd->h4 += e;
-
-  return /* burn_stack */ 88+4*sizeof(void*);
+    }
 }
 
 
-#ifdef USE_SSSE3
-unsigned int
-_gcry_sha1_transform_amd64_ssse3 (void *state, const unsigned char *data);
-#endif
-
-
-static unsigned int
-transform (void *ctx, const unsigned char *data)
+/* Update the message digest with the contents
+ * of INBUF with length INLEN.
+ */
+static void
+sha1_write( void *context, const void *inbuf_arg, size_t inlen)
 {
-  SHA1_CONTEXT *hd = ctx;
+  const unsigned char *inbuf = inbuf_arg;
+  SHA1_CONTEXT *hd = context;
+  size_t nblocks;
 
-#ifdef USE_SSSE3
-  if (hd->use_ssse3)
-    return _gcry_sha1_transform_amd64_ssse3 (&hd->h0, data)
-           + 4 * sizeof(void*);
-#endif
+  if (hd->count == 64)  /* Flush the buffer. */
+    {
+      TRANSFORM( hd, hd->buf, 1 );
+      _gcry_burn_stack (88+4*sizeof(void*));
+      hd->count = 0;
+      hd->nblocks++;
+    }
+  if (!inbuf)
+    return;
 
-  return _transform (hd, data);
+  if (hd->count)
+    {
+      for (; inlen && hd->count < 64; inlen--)
+        hd->buf[hd->count++] = *inbuf++;
+      sha1_write (hd, NULL, 0);
+      if (!inlen)
+        return;
+    }
+
+  nblocks = inlen / 64;
+  if (nblocks)
+    {
+      TRANSFORM (hd, inbuf, nblocks);
+      hd->count = 0;
+      hd->nblocks += nblocks;
+      inlen -= nblocks * 64;
+      inbuf += nblocks * 64;
+    }
+  _gcry_burn_stack (88+4*sizeof(void*));
+
+  /* Save remaining bytes.  */
+  for (; inlen && hd->count < 64; inlen--)
+    hd->buf[hd->count++] = *inbuf++;
 }
 
 
@@ -266,24 +287,19 @@ static void
 sha1_final(void *context)
 {
   SHA1_CONTEXT *hd = context;
-  u32 t, th, msb, lsb;
+
+  u32 t, msb, lsb;
   unsigned char *p;
-  unsigned int burn;
 
-  _gcry_md_block_write (hd, NULL, 0); /* flush */;
+  sha1_write(hd, NULL, 0); /* flush */;
 
-  t = hd->bctx.nblocks;
-  if (sizeof t == sizeof hd->bctx.nblocks)
-    th = hd->bctx.nblocks_high;
-  else
-    th = hd->bctx.nblocks >> 32;
-
+  t = hd->nblocks;
   /* multiply by 64 to make a byte count */
   lsb = t << 6;
-  msb = (th << 6) | (t >> 26);
+  msb = t >> 26;
   /* add the count */
   t = lsb;
-  if( (lsb += hd->bctx.count) < t )
+  if( (lsb += hd->count) < t )
     msb++;
   /* multiply by 8 to make a bit count */
   t = lsb;
@@ -291,28 +307,39 @@ sha1_final(void *context)
   msb <<= 3;
   msb |= t >> 29;
 
-  if( hd->bctx.count < 56 )  /* enough room */
+  if( hd->count < 56 )  /* enough room */
     {
-      hd->bctx.buf[hd->bctx.count++] = 0x80; /* pad */
-      while( hd->bctx.count < 56 )
-        hd->bctx.buf[hd->bctx.count++] = 0;  /* pad */
+      hd->buf[hd->count++] = 0x80; /* pad */
+      while( hd->count < 56 )
+        hd->buf[hd->count++] = 0;  /* pad */
     }
   else  /* need one extra block */
     {
-      hd->bctx.buf[hd->bctx.count++] = 0x80; /* pad character */
-      while( hd->bctx.count < 64 )
-        hd->bctx.buf[hd->bctx.count++] = 0;
-      _gcry_md_block_write(hd, NULL, 0);  /* flush */;
-      memset(hd->bctx.buf, 0, 56 ); /* fill next block with zeroes */
+      hd->buf[hd->count++] = 0x80; /* pad character */
+      while( hd->count < 64 )
+        hd->buf[hd->count++] = 0;
+      sha1_write(hd, NULL, 0);  /* flush */;
+      memset(hd->buf, 0, 56 ); /* fill next block with zeroes */
     }
   /* append the 64 bit count */
-  buf_put_be32(hd->bctx.buf + 56, msb);
-  buf_put_be32(hd->bctx.buf + 60, lsb);
-  burn = transform( hd, hd->bctx.buf );
-  _gcry_burn_stack (burn);
+  hd->buf[56] = msb >> 24;
+  hd->buf[57] = msb >> 16;
+  hd->buf[58] = msb >>  8;
+  hd->buf[59] = msb	   ;
+  hd->buf[60] = lsb >> 24;
+  hd->buf[61] = lsb >> 16;
+  hd->buf[62] = lsb >>  8;
+  hd->buf[63] = lsb	   ;
+  TRANSFORM( hd, hd->buf, 1 );
+  _gcry_burn_stack (88+4*sizeof(void*));
 
-  p = hd->bctx.buf;
-#define X(a) do { *(u32*)p = be_bswap32(hd->h##a) ; p += 4; } while(0)
+  p = hd->buf;
+#ifdef WORDS_BIGENDIAN
+#define X(a) do { *(u32*)p = hd->h##a ; p += 4; } while(0)
+#else /* little endian */
+#define X(a) do { *p++ = hd->h##a >> 24; *p++ = hd->h##a >> 16;	 \
+                  *p++ = hd->h##a >> 8; *p++ = hd->h##a; } while(0)
+#endif
   X(0);
   X(1);
   X(2);
@@ -327,7 +354,7 @@ sha1_read( void *context )
 {
   SHA1_CONTEXT *hd = context;
 
-  return hd->bctx.buf;
+  return hd->buf;
 }
 
 /****************
@@ -339,25 +366,10 @@ _gcry_sha1_hash_buffer (void *outbuf, const void *buffer, size_t length)
 {
   SHA1_CONTEXT hd;
 
-  sha1_init (&hd, 0);
-  _gcry_md_block_write (&hd, buffer, length);
+  sha1_init (&hd);
+  sha1_write (&hd, buffer, length);
   sha1_final (&hd);
-  memcpy (outbuf, hd.bctx.buf, 20);
-}
-
-
-/* Variant of the above shortcut function using a multiple buffers.  */
-void
-_gcry_sha1_hash_buffers (void *outbuf, const gcry_buffer_t *iov, int iovcnt)
-{
-  SHA1_CONTEXT hd;
-
-  sha1_init (&hd, 0);
-  for (;iovcnt > 0; iov++, iovcnt--)
-    _gcry_md_block_write (&hd,
-                          (const char*)iov[0].data + iov[0].off, iov[0].len);
-  sha1_final (&hd);
-  memcpy (outbuf, hd.bctx.buf, 20);
+  memcpy (outbuf, hd.buf, 20);
 }
 
 
@@ -455,9 +467,11 @@ static gcry_md_oid_spec_t oid_spec_sha1[] =
 
 gcry_md_spec_t _gcry_digest_spec_sha1 =
   {
-    GCRY_MD_SHA1, {0, 1},
     "SHA1", asn, DIM (asn), oid_spec_sha1, 20,
-    sha1_init, _gcry_md_block_write, sha1_final, sha1_read,
-    sizeof (SHA1_CONTEXT),
+    sha1_init, sha1_write, sha1_final, sha1_read,
+    sizeof (SHA1_CONTEXT)
+  };
+md_extra_spec_t _gcry_digest_extraspec_sha1 =
+  {
     run_selftests
   };

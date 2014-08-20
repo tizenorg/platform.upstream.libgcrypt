@@ -47,6 +47,7 @@ void
 _gcry_mpi_mod (gcry_mpi_t rem, gcry_mpi_t dividend, gcry_mpi_t divisor)
 {
   _gcry_mpi_fdiv_r (rem, dividend, divisor);
+  rem->sign = 0;
 }
 
 
@@ -62,7 +63,7 @@ _gcry_mpi_barrett_init (gcry_mpi_t m, int copy)
   gcry_mpi_t tmp;
 
   mpi_normalize (m);
-  ctx = xcalloc (1, sizeof *ctx);
+  ctx = gcry_xcalloc (1, sizeof *ctx);
 
   if (copy)
     {
@@ -99,7 +100,7 @@ _gcry_mpi_barrett_free (mpi_barrett_t ctx)
         mpi_free (ctx->r3);
       if (ctx->m_copied)
         mpi_free (ctx->m);
-      xfree (ctx);
+      gcry_free (ctx);
     }
 }
 
@@ -110,7 +111,7 @@ _gcry_mpi_barrett_free (mpi_barrett_t ctx)
    _gcry_mpi_barrett_init must have been called to do the
    precalculations.  CTX is the context created by this precalculation
    and also conveys M.  If the Barret reduction could no be done a
-   straightforward reduction method is used.
+   starightforward reduction method is used.
 
    We assume that these conditions are met:
    Input:  x =(x_2k-1 ...x_0)_b
@@ -125,7 +126,6 @@ _gcry_mpi_mod_barrett (gcry_mpi_t r, gcry_mpi_t x, mpi_barrett_t ctx)
   gcry_mpi_t y = ctx->y;
   gcry_mpi_t r1 = ctx->r1;
   gcry_mpi_t r2 = ctx->r2;
-  int sign;
 
   mpi_normalize (x);
   if (mpi_get_nlimbs (x) > 2*k )
@@ -133,9 +133,6 @@ _gcry_mpi_mod_barrett (gcry_mpi_t r, gcry_mpi_t x, mpi_barrett_t ctx)
       mpi_mod (r, x, m);
       return;
     }
-
-  sign = x->sign;
-  x->sign = 0;
 
   /* 1. q1 = floor( x / b^k-1)
    *    q2 = q1 * y
@@ -160,7 +157,7 @@ _gcry_mpi_mod_barrett (gcry_mpi_t r, gcry_mpi_t x, mpi_barrett_t ctx)
     r2->nlimbs = k+1;
   mpi_sub ( r, r1, r2 );
 
-  if ( mpi_has_sign ( r ) )
+  if ( mpi_is_neg( r ) )
     {
       if (!ctx->r3)
         {
@@ -175,7 +172,6 @@ _gcry_mpi_mod_barrett (gcry_mpi_t r, gcry_mpi_t x, mpi_barrett_t ctx)
   while ( mpi_cmp( r, m ) >= 0 )
     mpi_sub ( r, r, m );
 
-  x->sign = sign;
 }
 
 
@@ -183,6 +179,6 @@ void
 _gcry_mpi_mul_barrett (gcry_mpi_t w, gcry_mpi_t u, gcry_mpi_t v,
                        mpi_barrett_t ctx)
 {
-  mpi_mul (w, u, v);
+  gcry_mpi_mul (w, u, v);
   mpi_mod_barrett (w, w, ctx);
 }

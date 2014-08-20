@@ -24,7 +24,7 @@
 #include "mpi-internal.h"
 
 int
-_gcry_mpi_cmp_ui (gcry_mpi_t u, unsigned long v)
+gcry_mpi_cmp_ui (gcry_mpi_t u, unsigned long v)
 {
   mpi_limb_t limb = v;
 
@@ -55,7 +55,7 @@ _gcry_mpi_cmp_ui (gcry_mpi_t u, unsigned long v)
 
 
 int
-_gcry_mpi_cmp (gcry_mpi_t u, gcry_mpi_t v)
+gcry_mpi_cmp (gcry_mpi_t u, gcry_mpi_t v)
 {
   mpi_size_t usize;
   mpi_size_t vsize;

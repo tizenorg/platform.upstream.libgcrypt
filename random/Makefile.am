@@ -35,7 +35,6 @@ random.c random.h \
 rand-internal.h \
 random-csprng.c \
 random-fips.c \
-random-system.c \
 rndhw.c
 
 if USE_RANDOM_DAEMON

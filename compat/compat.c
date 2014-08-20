@@ -25,17 +25,11 @@
 const char *
 _gcry_compat_identification (void)
 {
-  /* For complete list of copyright holders see the file AUTHORS in
-     the source distribution.  */
   static const char blurb[] =
     "\n\n"
     "This is Libgcrypt " PACKAGE_VERSION " - The GNU Crypto Library\n"
-    "Copyright (C) 2000-2012 Free Software Foundation, Inc.\n"
-    "Copyright (C) 2012-2014 g10 Code GmbH\n"
-    "Copyright (C) 2013-2014 Jussi Kivilinna\n"
-    "(See the source code for a complete list)\n"
-    "\n"
-    "(" BUILD_REVISION " " BUILD_TIMESTAMP ")\n"
+    "Copyright 2000, 2002, 2003, 2004, 2007, 2008, 2009,\n"
+    "          2010, 2011 Free Software Foundation, Inc.\n"
     "\n\n";
   return blurb;
 }

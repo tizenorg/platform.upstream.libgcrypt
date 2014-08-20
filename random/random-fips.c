@@ -72,7 +72,7 @@
    integer variable is only used to check the locking state; that is,
    it is not meant to be thread-safe but merely as a failsafe feature
    to assert proper locking.  */
-static ath_mutex_t fips_rng_lock;
+static ath_mutex_t fips_rng_lock = ATH_MUTEX_INITIALIZER;
 static int fips_rng_is_locked;
 
 
@@ -192,7 +192,7 @@ basic_initialization (void)
   static int initialized;
   int my_errno;
 
-  if (initialized)
+  if (!initialized)
     return;
   initialized = 1;
 
@@ -390,9 +390,9 @@ encrypt_aes (gcry_cipher_hd_t key,
 
   gcry_assert (length == 16);
 
-  err = _gcry_cipher_encrypt (key, output, length, input, length);
+  err = gcry_cipher_encrypt (key, output, length, input, length);
   if (err)
-    log_fatal ("AES encryption in RNG failed: %s\n", _gcry_strerror (err));
+    log_fatal ("AES encryption in RNG failed: %s\n", gcry_strerror (err));
 }
 
 
@@ -555,7 +555,7 @@ get_entropy (size_t nbytes)
   int rc;
 
   gcry_assert (!entropy_collect_buffer);
-  entropy_collect_buffer = xmalloc_secure (nbytes);
+  entropy_collect_buffer = gcry_xmalloc_secure (nbytes);
   entropy_collect_buffer_size = nbytes;
   entropy_collect_buffer_len = 0;
 
@@ -577,7 +577,7 @@ get_entropy (size_t nbytes)
 
   if (rc < 0 || entropy_collect_buffer_len != entropy_collect_buffer_size)
     {
-      xfree (entropy_collect_buffer);
+      gcry_free (entropy_collect_buffer);
       entropy_collect_buffer = NULL;
       log_fatal ("error getting entropy data\n");
     }
@@ -595,25 +595,25 @@ static gcry_cipher_hd_t
 x931_generate_key (int for_nonce)
 {
   gcry_cipher_hd_t hd;
-  gpg_err_code_t rc;
+  gpg_error_t err;
   void *buffer;
 
   gcry_assert (fips_rng_is_locked);
 
   /* Allocate a cipher context.  */
-  rc = _gcry_cipher_open (&hd, GCRY_CIPHER_AES128, GCRY_CIPHER_MODE_ECB,
+  err = gcry_cipher_open (&hd, GCRY_CIPHER_AES128, GCRY_CIPHER_MODE_ECB,
                           GCRY_CIPHER_SECURE);
-  if (rc)
+  if (err)
     {
       log_error ("error creating cipher context for RNG: %s\n",
-                 _gcry_strerror (rc));
+                 gcry_strerror (err));
       return NULL;
     }
 
   /* Get a key from the standard RNG or from the entropy source.  */
   if (for_nonce)
     {
-      buffer = xmalloc (X931_AES_KEYLEN);
+      buffer = gcry_xmalloc (X931_AES_KEYLEN);
       get_random (buffer, X931_AES_KEYLEN, std_rng_context);
     }
   else
@@ -623,13 +623,13 @@ x931_generate_key (int for_nonce)
 
   /* Set the key and delete the buffer because the key is now part of
      the cipher context.  */
-  rc = _gcry_cipher_setkey (hd, buffer, X931_AES_KEYLEN);
+  err = gcry_cipher_setkey (hd, buffer, X931_AES_KEYLEN);
   wipememory (buffer, X931_AES_KEYLEN);
-  xfree (buffer);
-  if (rc)
+  gcry_free (buffer);
+  if (err)
     {
-      log_error ("error creating key for RNG: %s\n", _gcry_strerror (rc));
-      _gcry_cipher_close (hd);
+      log_error ("error creating key for RNG: %s\n", gcry_strerror (err));
+      gcry_cipher_close (hd);
       return NULL;
     }
 
@@ -651,7 +651,7 @@ x931_generate_seed (unsigned char *seed_buffer, size_t length)
 
   memcpy (seed_buffer, buffer, X931_AES_KEYLEN);
   wipememory (buffer, X931_AES_KEYLEN);
-  xfree (buffer);
+  gcry_free (buffer);
 }
 
 
@@ -753,17 +753,17 @@ _gcry_rngfips_initialize (int full)
   if (!tempvalue_for_x931_aes_driver)
     {
       tempvalue_for_x931_aes_driver
-        = xmalloc_secure (TEMPVALUE_FOR_X931_AES_DRIVER_SIZE);
+        = gcry_xmalloc_secure (TEMPVALUE_FOR_X931_AES_DRIVER_SIZE);
 
       /* Allocate the random contexts.  Note that we do not need to use
          secure memory for the nonce context.  */
-      nonce_context = xcalloc (1, sizeof *nonce_context);
+      nonce_context = gcry_xcalloc (1, sizeof *nonce_context);
       setup_guards (nonce_context);
 
-      std_rng_context = xcalloc_secure (1, sizeof *std_rng_context);
+      std_rng_context = gcry_xcalloc_secure (1, sizeof *std_rng_context);
       setup_guards (std_rng_context);
 
-      strong_rng_context = xcalloc_secure (1, sizeof *strong_rng_context);
+      strong_rng_context = gcry_xcalloc_secure (1, sizeof *strong_rng_context);
       setup_guards (strong_rng_context);
     }
   else
@@ -776,19 +776,6 @@ _gcry_rngfips_initialize (int full)
       check_guards (std_rng_context);
       check_guards (strong_rng_context);
     }
-  unlock_rng ();
-}
-
-
-/* Try to close the FDs of the random gather module.  This is
-   currently only implemented for rndlinux. */
-void
-_gcry_rngfips_close_fds (void)
-{
-  lock_rng ();
-#if USE_RNDLINUX
-  _gcry_rndlinux_gather_random (NULL, 0, 0, 0);
-#endif
   unlock_rng ();
 }
 
@@ -910,13 +897,13 @@ selftest_kat (selftest_report_func_t report)
     };
   int tvidx, ridx;
   rng_context_t test_ctx;
-  gpg_err_code_t rc;
+  gpg_error_t err;
   const char *errtxt = NULL;
   unsigned char result[16];
 
   gcry_assert (tempvalue_for_x931_aes_driver);
 
-  test_ctx = xcalloc (1, sizeof *test_ctx);
+  test_ctx = gcry_xcalloc (1, sizeof *test_ctx);
   setup_guards (test_ctx);
 
   lock_rng ();
@@ -924,17 +911,17 @@ selftest_kat (selftest_report_func_t report)
   for (tvidx=0; tvidx < DIM (tv); tvidx++)
     {
       /* Setup the key.  */
-      rc = _gcry_cipher_open (&test_ctx->cipher_hd,
+      err = gcry_cipher_open (&test_ctx->cipher_hd,
                               GCRY_CIPHER_AES128, GCRY_CIPHER_MODE_ECB,
                               GCRY_CIPHER_SECURE);
-      if (rc)
+      if (err)
         {
           errtxt = "error creating cipher context for RNG";
           goto leave;
         }
 
-      rc = _gcry_cipher_setkey (test_ctx->cipher_hd, tv[tvidx].key, 16);
-      if (rc)
+      err = gcry_cipher_setkey (test_ctx->cipher_hd, tv[tvidx].key, 16);
+      if (err)
         {
           errtxt = "error setting key for RNG";
           goto leave;
@@ -982,7 +969,7 @@ selftest_kat (selftest_report_func_t report)
           goto leave;
         }
 
-      _gcry_cipher_close (test_ctx->cipher_hd);
+      gcry_cipher_close (test_ctx->cipher_hd);
       test_ctx->cipher_hd = NULL;
       test_ctx->is_seeded = 0;
       check_guards (test_ctx);
@@ -990,9 +977,9 @@ selftest_kat (selftest_report_func_t report)
 
  leave:
   unlock_rng ();
-  _gcry_cipher_close (test_ctx->cipher_hd);
+  gcry_cipher_close (test_ctx->cipher_hd);
   check_guards (test_ctx);
-  xfree (test_ctx);
+  gcry_free (test_ctx);
   if (report && errtxt)
     report ("random", 0, "KAT", errtxt);
   return errtxt? GPG_ERR_SELFTEST_FAILED : 0;
@@ -1013,7 +1000,7 @@ _gcry_rngfips_selftest (selftest_report_func_t report)
        enforce full initialization of the RNG.  We need to be fully
        initialized due to the global requirement of the
        tempvalue_for_x931_aes_driver stuff. */
-    _gcry_randomize (buffer, sizeof buffer, GCRY_STRONG_RANDOM);
+    gcry_randomize (buffer, sizeof buffer, GCRY_STRONG_RANDOM);
   }
 
   ec = selftest_kat (report);
@@ -1035,7 +1022,7 @@ _gcry_rngfips_init_external_test (void **r_context, unsigned int flags,
                                   const void *seed, size_t seedlen,
                                   const void *dt, size_t dtlen)
 {
-  gpg_err_code_t rc;
+  gpg_error_t err;
   rng_context_t test_ctx;
 
   _gcry_rngfips_initialize (1);  /* Auto-initialize if needed.  */
@@ -1046,20 +1033,20 @@ _gcry_rngfips_init_external_test (void **r_context, unsigned int flags,
       || !dt   || dtlen   != 16 )
     return GPG_ERR_INV_ARG;
 
-  test_ctx = xtrycalloc (1, sizeof *test_ctx + dtlen);
+  test_ctx = gcry_calloc (1, sizeof *test_ctx + dtlen);
   if (!test_ctx)
     return gpg_err_code_from_syserror ();
   setup_guards (test_ctx);
 
   /* Setup the key.  */
-  rc = _gcry_cipher_open (&test_ctx->cipher_hd,
+  err = gcry_cipher_open (&test_ctx->cipher_hd,
                           GCRY_CIPHER_AES128, GCRY_CIPHER_MODE_ECB,
                           GCRY_CIPHER_SECURE);
-  if (rc)
+  if (err)
     goto leave;
 
-  rc = _gcry_cipher_setkey (test_ctx->cipher_hd, key, keylen);
-  if (rc)
+  err = gcry_cipher_setkey (test_ctx->cipher_hd, key, keylen);
+  if (err)
     goto leave;
 
   test_ctx->key_init_pid = getpid ();
@@ -1084,18 +1071,18 @@ _gcry_rngfips_init_external_test (void **r_context, unsigned int flags,
 
   check_guards (test_ctx);
   /* All fine.  */
-  rc = 0;
+  err = 0;
 
  leave:
-  if (rc)
+  if (err)
     {
-      _gcry_cipher_close (test_ctx->cipher_hd);
-      xfree (test_ctx);
+      gcry_cipher_close (test_ctx->cipher_hd);
+      gcry_free (test_ctx);
       *r_context = NULL;
     }
   else
     *r_context = test_ctx;
-  return rc;
+  return gcry_err_code (err);
 }
 
 
@@ -1123,7 +1110,7 @@ _gcry_rngfips_deinit_external_test (void *context)
 
   if (test_ctx)
     {
-      _gcry_cipher_close (test_ctx->cipher_hd);
-      xfree (test_ctx);
+      gcry_cipher_close (test_ctx->cipher_hd);
+      gcry_free (test_ctx);
     }
 }

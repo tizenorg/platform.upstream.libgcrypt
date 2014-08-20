@@ -26,19 +26,7 @@
 #include <string.h>
 
 
-#include "../src/gcrypt-int.h"
-
-#define my_isascii(c) (!((c) & 0x80))
-#define digitp(p)   (*(p) >= '0' && *(p) <= '9')
-#define hexdigitp(a) (digitp (a)                     \
-                      || (*(a) >= 'A' && *(a) <= 'F')  \
-                      || (*(a) >= 'a' && *(a) <= 'f'))
-#define xtoi_1(p)   (*(p) <= '9'? (*(p)- '0'): \
-                     *(p) <= 'F'? (*(p)-'A'+10):(*(p)-'a'+10))
-#define xtoi_2(p)   ((xtoi_1(p) * 16) + xtoi_1((p)+1))
-#define DIM(v)		     (sizeof(v)/sizeof((v)[0]))
-#define DIMof(type,member)   DIM(((type *)0)->member)
-
+#include "../src/gcrypt.h"
 
 /* Sample RSA keys, taken from basic.c.  */
 
@@ -113,7 +101,6 @@ static const char sample_public_key_1[] =
 
 
 static int verbose;
-static int error_count;
 
 static void
 die (const char *format, ...)
@@ -123,30 +110,7 @@ die (const char *format, ...)
   va_start( arg_ptr, format ) ;
   vfprintf (stderr, format, arg_ptr );
   va_end(arg_ptr);
-  if (*format && format[strlen(format)-1] != '\n')
-    putc ('\n', stderr);
   exit (1);
-}
-
-static void
-fail (const char *format, ...)
-{
-  va_list arg_ptr;
-
-  va_start (arg_ptr, format);
-  vfprintf (stderr, format, arg_ptr);
-  va_end (arg_ptr);
-  error_count++;
-}
-
-static void
-info (const char *format, ...)
-{
-  va_list arg_ptr;
-
-  va_start (arg_ptr, format);
-  vfprintf (stderr, format, arg_ptr);
-  va_end (arg_ptr);
 }
 
 static void
@@ -166,59 +130,6 @@ show_sexp (const char *prefix, gcry_sexp_t a)
 }
 
 
-/* Convert STRING consisting of hex characters into its binary
-   representation and return it as an allocated buffer. The valid
-   length of the buffer is returned at R_LENGTH.  The string is
-   delimited by end of string.  The function returns NULL on
-   error.  */
-static void *
-data_from_hex (const char *string, size_t *r_length)
-{
-  const char *s;
-  unsigned char *buffer;
-  size_t length;
-
-  buffer = gcry_xmalloc (strlen(string)/2+1);
-  length = 0;
-  for (s=string; *s; s +=2 )
-    {
-      if (!hexdigitp (s) || !hexdigitp (s+1))
-        die ("error parsing hex string `%s'\n", string);
-      ((unsigned char*)buffer)[length++] = xtoi_2 (s);
-    }
-  *r_length = length;
-  return buffer;
-}
-
-
-static void
-extract_cmp_data (gcry_sexp_t sexp, const char *name, const char *expected)
-{
-  gcry_sexp_t l1;
-  const void *a;
-  size_t alen;
-  void *b;
-  size_t blen;
-
-  l1 = gcry_sexp_find_token (sexp, name, 0);
-  a = gcry_sexp_nth_data (l1, 1, &alen);
-  b = data_from_hex (expected, &blen);
-  if (!a)
-    fail ("parameter \"%s\" missing in key\n", name);
-  else if ( alen != blen || memcmp (a, b, alen) )
-    {
-      fail ("parameter \"%s\" does not match expected value\n", name);
-      if (verbose)
-        {
-          info ("expected: %s\n", expected);
-          show_sexp ("sexp: ", sexp);
-        }
-    }
-  gcry_free (b);
-  gcry_sexp_release (l1);
-}
-
-
 static void
 check_keys_crypt (gcry_sexp_t pkey, gcry_sexp_t skey,
 		  gcry_sexp_t plain0, gpg_err_code_t decrypt_fail_code)
@@ -231,7 +142,6 @@ check_keys_crypt (gcry_sexp_t pkey, gcry_sexp_t skey,
   /* Extract data from plaintext.  */
   l = gcry_sexp_find_token (plain0, "value", 0);
   x0 = gcry_sexp_nth_mpi (l, 1, GCRYMPI_FMT_USG);
-  gcry_sexp_release (l);
 
   /* Encrypt data.  */
   rc = gcry_pk_encrypt (&cipher, plain0, pkey);
@@ -248,10 +158,7 @@ check_keys_crypt (gcry_sexp_t pkey, gcry_sexp_t skey,
   if (rc)
     {
       if (decrypt_fail_code && gpg_err_code (rc) == decrypt_fail_code)
-	{
-	  gcry_mpi_release (x0);
-	  return; /* This is the expected failure code.  */
-	}
+        return; /* This is the expected failure code.  */
       die ("decryption failed: %s\n", gcry_strerror (rc));
     }
 
@@ -280,8 +187,6 @@ check_keys_crypt (gcry_sexp_t pkey, gcry_sexp_t skey,
   /* Compare.  */
   if (gcry_mpi_cmp (x0, x1))
     die ("data corrupted\n");
-  gcry_mpi_release (x0);
-  gcry_mpi_release (x1);
 }
 
 static void
@@ -311,7 +216,6 @@ check_keys (gcry_sexp_t pkey, gcry_sexp_t skey, unsigned int nbits_data,
 
   rc = gcry_sexp_build (&plain, NULL,
                         "(data (flags raw no-blinding) (value %m))", x);
-  gcry_mpi_release (x);
   if (rc)
     die ("converting data for encryption failed: %s\n",
 	 gcry_strerror (rc));
@@ -952,220 +856,6 @@ check_x931_derived_key (int what)
 
 
 
-static void
-check_ecc_sample_key (void)
-{
-  static const char ecc_private_key[] =
-    "(private-key\n"
-    " (ecdsa\n"
-    "  (curve \"NIST P-256\")\n"
-    "  (q #04D4F6A6738D9B8D3A7075C1E4EE95015FC0C9B7E4272D2BEB6644D3609FC781"
-    "B71F9A8072F58CB66AE2F89BB12451873ABF7D91F9E1FBF96BF2F70E73AAC9A283#)\n"
-    "  (d #5A1EF0035118F19F3110FB81813D3547BCE1E5BCE77D1F744715E1D5BBE70378#)"
-    "))";
-  static const char ecc_private_key_wo_q[] =
-    "(private-key\n"
-    " (ecdsa\n"
-    "  (curve \"NIST P-256\")\n"
-    "  (d #5A1EF0035118F19F3110FB81813D3547BCE1E5BCE77D1F744715E1D5BBE70378#)"
-    "))";
-  static const char ecc_public_key[] =
-    "(public-key\n"
-    " (ecdsa\n"
-    "  (curve \"NIST P-256\")\n"
-    "  (q #04D4F6A6738D9B8D3A7075C1E4EE95015FC0C9B7E4272D2BEB6644D3609FC781"
-    "B71F9A8072F58CB66AE2F89BB12451873ABF7D91F9E1FBF96BF2F70E73AAC9A283#)"
-    "))";
-  static const char hash_string[] =
-    "(data (flags raw)\n"
-    " (value #00112233445566778899AABBCCDDEEFF"
-    /* */    "000102030405060708090A0B0C0D0E0F#))";
-  static const char hash2_string[] =
-    "(data (flags raw)\n"
-    " (hash sha1 #00112233445566778899AABBCCDDEEFF"
-    /* */    "000102030405060708090A0B0C0D0E0F"
-    /* */    "000102030405060708090A0B0C0D0E0F"
-    /* */    "00112233445566778899AABBCCDDEEFF#))";
-  /* hash2, but longer than curve length, so it will be truncated */
-  static const char hash3_string[] =
-    "(data (flags raw)\n"
-    " (hash sha1 #00112233445566778899AABBCCDDEEFF"
-    /* */    "000102030405060708090A0B0C0D0E0F"
-    /* */    "000102030405060708090A0B0C0D0E0F"
-    /* */    "00112233445566778899AABBCCDDEEFF"
-    /* */    "000102030405060708090A0B0C0D0E0F#))";
-
-  gpg_error_t err;
-  gcry_sexp_t key, hash, hash2, hash3, sig, sig2;
-
-  if (verbose)
-    fprintf (stderr, "Checking sample ECC key.\n");
-
-  if ((err = gcry_sexp_new (&hash, hash_string, 0, 1)))
-    die ("line %d: %s", __LINE__, gpg_strerror (err));
-
-  if ((err = gcry_sexp_new (&hash2, hash2_string, 0, 1)))
-    die ("line %d: %s", __LINE__, gpg_strerror (err));
-
-  if ((err = gcry_sexp_new (&hash3, hash3_string, 0, 1)))
-    die ("line %d: %s", __LINE__, gpg_strerror (err));
-
-  if ((err = gcry_sexp_new (&key, ecc_private_key, 0, 1)))
-    die ("line %d: %s", __LINE__, gpg_strerror (err));
-
-  if ((err = gcry_pk_sign (&sig, hash, key)))
-    die ("gcry_pk_sign failed: %s", gpg_strerror (err));
-
-  gcry_sexp_release (key);
-  if ((err = gcry_sexp_new (&key, ecc_public_key, 0, 1)))
-    die ("line %d: %s", __LINE__, gpg_strerror (err));
-
-  if ((err = gcry_pk_verify (sig, hash, key)))
-    die ("gcry_pk_verify failed: %s", gpg_strerror (err));
-
-  /* Verify hash truncation */
-  gcry_sexp_release (key);
-  if ((err = gcry_sexp_new (&key, ecc_private_key, 0, 1)))
-    die ("line %d: %s", __LINE__, gpg_strerror (err));
-
-  if ((err = gcry_pk_sign (&sig2, hash2, key)))
-    die ("gcry_pk_sign failed: %s", gpg_strerror (err));
-
-  gcry_sexp_release (sig);
-  if ((err = gcry_pk_sign (&sig, hash3, key)))
-    die ("gcry_pk_sign failed: %s", gpg_strerror (err));
-
-  gcry_sexp_release (key);
-  if ((err = gcry_sexp_new (&key, ecc_public_key, 0, 1)))
-    die ("line %d: %s", __LINE__, gpg_strerror (err));
-
-  if ((err = gcry_pk_verify (sig, hash2, key)))
-    die ("gcry_pk_verify failed: %s", gpg_strerror (err));
-
-  if ((err = gcry_pk_verify (sig2, hash3, key)))
-    die ("gcry_pk_verify failed: %s", gpg_strerror (err));
-
-  /* Now try signing without the Q parameter.  */
-
-  gcry_sexp_release (key);
-  if ((err = gcry_sexp_new (&key, ecc_private_key_wo_q, 0, 1)))
-    die ("line %d: %s", __LINE__, gpg_strerror (err));
-
-  gcry_sexp_release (sig);
-  if ((err = gcry_pk_sign (&sig, hash, key)))
-    die ("gcry_pk_sign without Q failed: %s", gpg_strerror (err));
-
-  gcry_sexp_release (key);
-  if ((err = gcry_sexp_new (&key, ecc_public_key, 0, 1)))
-    die ("line %d: %s", __LINE__, gpg_strerror (err));
-
-  if ((err = gcry_pk_verify (sig, hash, key)))
-    die ("gcry_pk_verify signed without Q failed: %s", gpg_strerror (err));
-
-  gcry_sexp_release (sig);
-  gcry_sexp_release (sig2);
-  gcry_sexp_release (key);
-  gcry_sexp_release (hash);
-  gcry_sexp_release (hash2);
-  gcry_sexp_release (hash3);
-}
-
-
-static void
-check_ed25519ecdsa_sample_key (void)
-{
-  static const char ecc_private_key[] =
-    "(private-key\n"
-    " (ecc\n"
-    "  (curve \"Ed25519\")\n"
-    "  (q #044C056555BE4084BB3D8D8895FDF7C2893DFE0256251923053010977D12658321"
-    "        156D1ADDC07987713A418783658B476358D48D582DB53233D9DED3C1C2577B04#)"
-    "  (d #09A0C38E0F1699073541447C19DA12E3A07A7BFDB0C186E4AC5BCE6F23D55252#)"
-    "))";
-  static const char ecc_private_key_wo_q[] =
-    "(private-key\n"
-    " (ecc\n"
-    "  (curve \"Ed25519\")\n"
-    "  (d #09A0C38E0F1699073541447C19DA12E3A07A7BFDB0C186E4AC5BCE6F23D55252#)"
-    "))";
-  static const char ecc_public_key[] =
-    "(public-key\n"
-    " (ecc\n"
-    "  (curve \"Ed25519\")\n"
-    "  (q #044C056555BE4084BB3D8D8895FDF7C2893DFE0256251923053010977D12658321"
-    "        156D1ADDC07987713A418783658B476358D48D582DB53233D9DED3C1C2577B04#)"
-    "))";
-  static const char ecc_public_key_comp[] =
-    "(public-key\n"
-    " (ecc\n"
-    "  (curve \"Ed25519\")\n"
-    "  (q #047b57c2c1d3ded93332b52d588dd45863478b658387413a718779c0dd1a6d95#)"
-    "))";
-  static const char hash_string[] =
-    "(data (flags rfc6979)\n"
-    " (hash sha256 #00112233445566778899AABBCCDDEEFF"
-    /* */          "000102030405060708090A0B0C0D0E0F#))";
-
-  gpg_error_t err;
-  gcry_sexp_t key, hash, sig;
-
-  if (verbose)
-    fprintf (stderr, "Checking sample Ed25519/ECDSA key.\n");
-
-  /* Sign.  */
-  if ((err = gcry_sexp_new (&hash, hash_string, 0, 1)))
-    die ("line %d: %s", __LINE__, gpg_strerror (err));
-  if ((err = gcry_sexp_new (&key, ecc_private_key, 0, 1)))
-    die ("line %d: %s", __LINE__, gpg_strerror (err));
-  if ((err = gcry_pk_sign (&sig, hash, key)))
-    die ("gcry_pk_sign failed: %s", gpg_strerror (err));
-
-  /* Verify.  */
-  gcry_sexp_release (key);
-  if ((err = gcry_sexp_new (&key, ecc_public_key, 0, 1)))
-    die ("line %d: %s", __LINE__, gpg_strerror (err));
-  if ((err = gcry_pk_verify (sig, hash, key)))
-    die ("gcry_pk_verify failed: %s", gpg_strerror (err));
-
-  /* Verify again using a compressed public key.  */
-  gcry_sexp_release (key);
-  if ((err = gcry_sexp_new (&key, ecc_public_key_comp, 0, 1)))
-    die ("line %d: %s", __LINE__, gpg_strerror (err));
-  if ((err = gcry_pk_verify (sig, hash, key)))
-    die ("gcry_pk_verify failed (comp): %s", gpg_strerror (err));
-
-  /* Sign without a Q parameter.  */
-  gcry_sexp_release (key);
-  if ((err = gcry_sexp_new (&key, ecc_private_key_wo_q, 0, 1)))
-    die ("line %d: %s", __LINE__, gpg_strerror (err));
-  gcry_sexp_release (sig);
-  if ((err = gcry_pk_sign (&sig, hash, key)))
-    die ("gcry_pk_sign w/o Q failed: %s", gpg_strerror (err));
-
-  /* Verify.  */
-  gcry_sexp_release (key);
-  if ((err = gcry_sexp_new (&key, ecc_public_key, 0, 1)))
-    die ("line %d: %s", __LINE__, gpg_strerror (err));
-  if ((err = gcry_pk_verify (sig, hash, key)))
-    die ("gcry_pk_verify signed w/o Q failed: %s", gpg_strerror (err));
-
-  /* Verify again using a compressed public key.  */
-  gcry_sexp_release (key);
-  if ((err = gcry_sexp_new (&key, ecc_public_key_comp, 0, 1)))
-    die ("line %d: %s", __LINE__, gpg_strerror (err));
-  if ((err = gcry_pk_verify (sig, hash, key)))
-    die ("gcry_pk_verify signed w/o Q failed (comp): %s", gpg_strerror (err));
-
-  extract_cmp_data (sig, "r", ("a63123a783ef29b8276e08987daca4"
-                               "655d0179e22199bf63691fd88eb64e15"));
-  extract_cmp_data (sig, "s", ("0d9b45c696ab90b96b08812b485df185"
-                               "623ddaf5d02fa65ca5056cb6bd0f16f1"));
-
-  gcry_sexp_release (sig);
-  gcry_sexp_release (key);
-  gcry_sexp_release (hash);
-}
-
 
 int
 main (int argc, char **argv)
@@ -1196,8 +886,5 @@ main (int argc, char **argv)
   for (i=0; i < 4; i++)
     check_x931_derived_key (i);
 
-  check_ecc_sample_key ();
-  check_ed25519ecdsa_sample_key ();
-
-  return !!error_count;
+  return 0;
 }
