@@ -44,6 +44,7 @@ void _gcry_random_progress (const char *what, int printchar,
 
 /*-- random-csprng.c --*/
 void _gcry_rngcsprng_initialize (int full);
+void _gcry_rngcsprng_close_fds (void);
 void _gcry_rngcsprng_dump_stats (void);
 void _gcry_rngcsprng_secure_alloc (void);
 void _gcry_rngcsprng_enable_quick_gen (void);
@@ -61,18 +62,14 @@ void _gcry_rngcsprng_randomize (void *buffer, size_t length,
 void _gcry_rngcsprng_set_seed_file (const char *name);
 void _gcry_rngcsprng_update_seed_file (void);
 void _gcry_rngcsprng_fast_poll (void);
-void _gcry_rngcsprng_create_nonce (void *buffer, size_t length);
 
-/*-- random-rngcsprng.c --*/
+/*-- random-fips.c --*/
 void _gcry_rngfips_initialize (int full);
+void _gcry_rngfips_close_fds (void);
 void _gcry_rngfips_dump_stats (void);
 int  _gcry_rngfips_is_faked (void);
 gcry_error_t _gcry_rngfips_add_bytes (const void *buf, size_t buflen,
                                         int quality);
-void *_gcry_rngfips_get_bytes (size_t nbytes,
-                               enum gcry_random_level level);
-void *_gcry_rngfips_get_bytes_secure (size_t nbytes,
-                                      enum gcry_random_level level);
 void _gcry_rngfips_randomize (void *buffer, size_t length,
                                 enum gcry_random_level level);
 void _gcry_rngfips_create_nonce (void *buffer, size_t length);
@@ -92,6 +89,15 @@ gcry_err_code_t _gcry_rngfips_run_external_test (void *context,
 void _gcry_rngfips_deinit_external_test (void *context);
 
 
+/*-- random-system.c --*/
+void _gcry_rngsystem_initialize (int full);
+void _gcry_rngsystem_close_fds (void);
+void _gcry_rngsystem_dump_stats (void);
+int  _gcry_rngsystem_is_faked (void);
+gcry_error_t _gcry_rngsystem_add_bytes (const void *buf, size_t buflen,
+                                        int quality);
+void _gcry_rngsystem_randomize (void *buffer, size_t length,
+                                enum gcry_random_level level);
 
 
 

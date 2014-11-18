@@ -36,7 +36,7 @@
 #include "hmac256.h"
 
 
-/* The name of the file used to foce libgcrypt into fips mode. */
+/* The name of the file used to force libgcrypt into fips mode. */
 #define FIPS_FORCE_FILE "/etc/gcrypt/fips_enabled"
 
 
@@ -69,7 +69,7 @@ static int enforced_fips_mode;
 static int inactive_fips_mode;
 
 /* This is the lock we use to protect the FSM.  */
-static ath_mutex_t fsm_lock = ATH_MUTEX_INITIALIZER;
+static ath_mutex_t fsm_lock;
 
 /* The current state of the FSM.  The whole state machinery is only
    used while in fips mode. Change this only while holding fsm_lock. */
@@ -274,9 +274,17 @@ _gcry_fips_mode (void)
 int
 _gcry_enforced_fips_mode (void)
 {
+  if (!_gcry_fips_mode ())
+    return 0;
   return enforced_fips_mode;
 }
 
+/* Set a flag telling whether we are in the enforced fips mode.  */
+void
+_gcry_set_enforced_fips_mode (void)
+{
+  enforced_fips_mode = 1;
+}
 
 /* If we do not want to enforce the fips mode, we can set a flag so
    that the application may check whether it is still in fips mode.
@@ -538,7 +546,7 @@ run_pubkey_selftests (int extended)
     {
       GCRY_PK_RSA,
       GCRY_PK_DSA,
-      /* GCRY_PK_ECDSA is not enabled in fips mode.  */
+      /* GCRY_PK_ECC is not enabled in fips mode.  */
       0
     };
   int idx;
@@ -594,7 +602,7 @@ check_binary_integrity (void)
         err = gpg_error (GPG_ERR_INTERNAL);
       else
         {
-          fname = gcry_malloc (strlen (info.dli_fname) + 1 + 5 + 1 );
+          fname = xtrymalloc (strlen (info.dli_fname) + 1 + 5 + 1 );
           if (!fname)
             err = gpg_error_from_syserror ();
           else
@@ -652,7 +660,7 @@ check_binary_integrity (void)
             "integrity check using `%s' failed: %s",
             fname? fname:"[?]", gpg_strerror (err));
 #endif /*HAVE_SYSLOG*/
-  gcry_free (fname);
+  xfree (fname);
   return !!err;
 #else
   return 0;
