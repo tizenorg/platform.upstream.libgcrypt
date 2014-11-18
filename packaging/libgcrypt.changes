@@ -1,3 +1,6 @@
+* Tue Nov 18 2014 John L. Whiteman <john.l.whiteman@intel.com> upstream/1.6.2-8-ga3b85b5
+- Updating to version 1.6.2.  Yocto alignment
+
 * Mon Mar 18 2013 Anas Nashif <anas.nashif@intel.com> submit/trunk/20130318.041041@26faab0
 - Fixed package groups and move package to security domain
 

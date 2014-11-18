@@ -1,5 +1,5 @@
 Name:           libgcrypt
-Version:        1.5.0
+Version:        1.6.2
 Release:        0
 License:        GPL-2.0+ ; LGPL-2.1+
 Summary:        The GNU Crypto Library
@@ -66,15 +66,18 @@ make %{?_smp_mflags}
 %manifest %{name}.manifest
 %defattr(-,root,root)
 %license COPYING COPYING.LIB
-%{_libdir}/%{name}.so.11*
+%{_libdir}/%{name}.so.20*
 
 %files devel
 %manifest %{name}.manifest
 %defattr(-,root,root)
 %{_infodir}/gcrypt.info.gz
 %{_infodir}/gcrypt.info-1.gz
+%{_infodir}/gcrypt.info-2.gz
+%{_mandir}/man1/hmac256.1.gz
 %{_bindir}/dumpsexp
 %{_bindir}/hmac256
+%{_bindir}/mpicalc
 %{_bindir}/%{name}-config
 %{_libdir}/%{name}.so
 %{_includedir}/gcrypt*.h
