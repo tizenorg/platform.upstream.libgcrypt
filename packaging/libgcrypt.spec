@@ -1,7 +1,7 @@
 Name:           libgcrypt
 Version:        1.6.2
 Release:        0
-License:        GPL-2.0+ ; LGPL-2.1+
+License:        LGPL-2.1+ and GPL-2.0+
 Summary:        The GNU Crypto Library
 %define libsoname %{name}
 Url:            http://directory.fsf.org/wiki/Libgcrypt
@@ -17,7 +17,7 @@ Libgcrypt is a general purpose crypto library based on the code used in
 GnuPG (alpha version).
 
 %package devel
-License:        GFDL-1.1 ; GPL-2.0+ ; LGPL-2.1+ ; MIT
+License:        GPL-2.0+ and LGPL-2.1+ and X11 and BSD-2.0 and IETF
 Summary:        The GNU Crypto Library
 Group:          Development/Libraries
 Requires:       %{libsoname} = %{version}
