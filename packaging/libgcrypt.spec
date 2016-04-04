@@ -36,6 +36,9 @@ library.
 cp %{SOURCE1001} .
 
 %build
+export CFLAGS+=" -fvisibility=hidden"
+  export CXXFLAGS+=" -fvisibility=hidden"
+  
 # define ciphers to build
 ENABLE_CIPHER="arcfour blowfish cast5 des aes twofish serpent rfc2268 seed camellia"
 ENABLE_PUBKEY="dsa elgamal rsa ecc"
